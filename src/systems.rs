@@ -1,0 +1,48 @@
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
+pub enum System {
+    SN76489,
+    YM2413,
+    YM2612,
+    YM2151,
+    SegaPcm,
+    RF5C68,
+    YM2203,
+    YM2608,
+    YM2610, // Bit 31 is used to set whether it is an YM2610 or an YM2610B chip
+    YM3812,
+    YM3526,
+    Y8950,
+    YMF262,
+    YMF278B,
+    YMF271,
+    YMZ280B,
+    RF5C164,
+    Pwm,
+    AY8910,
+    GameboyDmg,
+    NesApu,
+    MultiPcm,
+    UPD7759,
+    OKIM6258,
+    K054539,
+    C140,
+    OKIM6295,
+    K051649, // If bit 31 is set it is a K052539.
+    K052539,
+    HuC6280,
+    K053260,
+    Pokey,
+    QSound,
+    SCSP,
+    WonderSwan,
+    VSU,
+    SAA1099,
+    ES5503,
+    ES5505, // If bit 31 is set it is an ES5506, if bit 31 is clear it is an ES5505.
+    ES5506,
+    C352,
+    X1_010,
+    GA20,
+}

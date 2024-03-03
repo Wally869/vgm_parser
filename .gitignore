@@ -1,0 +1,8 @@
+/target
+/vgm_files/
+*.vgm
+*.bin
+*.json
+
+/generated
+/src/deprecated
