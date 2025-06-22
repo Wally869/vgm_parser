@@ -6,3 +6,6 @@
 
 /generated
 /src/deprecated
+
+/.claude
+/temp

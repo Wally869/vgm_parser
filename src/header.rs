@@ -1016,7 +1016,7 @@ mod tests {
 
     use bytes::{Buf, Bytes, BytesMut};
 
-    use crate::utils::PositionAccessor;
+    use crate::traits::{VgmParser, VgmWriter};
 
     use super::HeaderData;
 

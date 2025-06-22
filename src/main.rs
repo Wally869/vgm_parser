@@ -8,105 +8,21 @@ use std::{
 };
 
 use bytes::{Buf, Bytes, BytesMut};
-//use flate2::{Decompress, bufread::GzDecoder};
-use header::HeaderData;
-use metadata::VgmMetadata;
-use traits::{VgmParser, VgmWriter};
-use vgm_commands::{parse_commands, write_commands, Commands};
 
 mod errors;
 mod utils;
-
 mod systems;
 mod vgm_commands;
-
 mod header;
 mod metadata;
 mod traits;
-
 mod custom_encoder;
-
 mod tokenizing;
 
-use serde::{Deserialize, Serialize};
-
-use crate::custom_encoder::CustomEncode;
+use vgm_parser::{custom_encoder::CustomEncode, *};
 
 //const FILENAME: &'static str = "prologue.vgm"; //"./vgm_files/01 - Title Screen.vgz"; //prologue.vgm";
 const FILENAME: &'static str = "contact.vgm";
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct VgmFile {
-    pub header: HeaderData,
-    pub commands: Vec<Commands>,
-    pub metadata: VgmMetadata,
-}
-
-impl VgmFile {
-    pub fn from_path(path: &str) -> Self {
-        let file_data = fs::read(path).unwrap();
-        let mut data = Bytes::from(file_data);
-        let vgm_file = VgmFile::from_bytes(&mut data);
-
-        return vgm_file;
-    }
-
-    pub fn has_data_block(&self) -> bool {
-        for cmd in &self.commands {
-            match cmd {
-                Commands::DataBlock {
-                    data_type: _,
-                    data_size: _,
-                    data: _,
-                } => {
-                    return true;
-                }
-                _ => (),
-            }
-        }
-
-        return false;
-    }
-
-    pub fn has_pcm_write(&self) -> bool {
-        for cmd in &self.commands {
-            match cmd {
-                Commands::PCMRAMWrite { offset: _, data: _ } => {
-                    return true;
-                }
-                _ => (),
-            }
-        }
-
-        return false;
-    }
-}
-
-impl VgmParser for VgmFile {
-    fn from_bytes(data: &mut Bytes) -> Self {
-        let len_data = data.len();
-        let header_data = HeaderData::from_bytes(data);
-        let vgm_start_pos = header_data.vgm_data_offset as usize + 0x34;
-
-        while len_data - data.len() < vgm_start_pos {
-            data.get_u8();
-        }
-
-        return VgmFile {
-            header: header_data, //HeaderData::from_bytes(data),
-            commands: parse_commands(data),
-            metadata: VgmMetadata::from_bytes(data),
-        };
-    }
-}
-
-impl VgmWriter for VgmFile {
-    fn to_bytes(&self, buffer: &mut bytes::BytesMut) {
-        self.header.to_bytes(buffer);
-        write_commands(buffer, &self.commands);
-        self.metadata.to_bytes(buffer);
-    }
-}
 
 fn main() {
     let vgm_file = VgmFile::from_path(&format!("./vgm_files/{}", FILENAME));
