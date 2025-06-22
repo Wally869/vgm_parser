@@ -21,7 +21,7 @@ fn bcd_to_decimal(byte: u8) -> u32 {
 /// Read bytes and return bcd version 
 /// For example [0x51, 0x01, 0x00, 0x00] will return 151
 pub fn bcd_from_bytes(bytes_list: &[u8]) -> u32 {
-    let mut bytes_list = bytes_list.clone().to_vec();
+    let mut bytes_list = bytes_list.to_vec();
     bytes_list.reverse();
     let mut version = 0;
     for byte in bytes_list {
