@@ -1,0 +1,23 @@
+# rustfmt configuration for vgm_parser
+# This ensures consistent code formatting across the project
+# Only using stable features
+
+# Basic formatting
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+edition = "2021"
+
+# Function and struct formatting
+fn_params_layout = "Tall"
+
+# Misc formatting (stable features only)
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+force_explicit_abi = true
+
+# Stable formatting options
+array_width = 60
+chain_width = 60
+reorder_imports = true
+reorder_modules = true

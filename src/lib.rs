@@ -5,8 +5,6 @@ pub mod systems;
 pub mod traits;
 pub mod utils;
 pub mod vgm_commands;
-pub mod custom_encoder;
-pub mod tokenizing;
 
 pub use errors::*;
 pub use header::*;
@@ -29,26 +27,20 @@ impl VgmFile {
     pub fn from_path(path: &str) -> Self {
         let file_data = std::fs::read(path).unwrap();
         let mut data = Bytes::from(file_data);
-        let vgm_file = VgmFile::from_bytes(&mut data);
-        vgm_file
+        
+        VgmFile::from_bytes(&mut data)
     }
 
     pub fn has_data_block(&self) -> bool {
         for cmd in &self.commands {
-            match cmd {
-                Commands::DataBlock { .. } => return true,
-                _ => (),
-            }
+            if let Commands::DataBlock { .. } = cmd { return true }
         }
         false
     }
 
     pub fn has_pcm_write(&self) -> bool {
         for cmd in &self.commands {
-            match cmd {
-                Commands::PCMRAMWrite { .. } => return true,
-                _ => (),
-            }
+            if let Commands::PCMRAMWrite { .. } = cmd { return true }
         }
         false
     }
@@ -95,19 +87,19 @@ mod tests {
 
         // Parse the file
         let vgm = VgmFile::from_path(test_file);
-        
+
         // Basic assertions
         assert_eq!(vgm.header.version, 151); // v1.51
-        assert!(vgm.commands.len() > 0);
-        
+        assert!(!vgm.commands.is_empty());
+
         // Test round-trip
         let mut buffer = BytesMut::new();
         vgm.to_bytes(&mut buffer);
-        
+
         // Parse again
         let mut data = Bytes::from(buffer.to_vec());
         let vgm2 = VgmFile::from_bytes(&mut data);
-        
+
         // Compare
         assert_eq!(vgm.header.version, vgm2.header.version);
         assert_eq!(vgm.commands.len(), vgm2.commands.len());

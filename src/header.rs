@@ -630,7 +630,7 @@ impl VgmParser for HeaderData {
         }
         header.ga20_clock = data.get_u32_le();
 
-        return header;
+        header
     }
 }
 

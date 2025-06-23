@@ -47,7 +47,6 @@ impl VgmParser for VgmMetadata {
             .slice(12..)
             .to_vec()
             .chunks_exact(2)
-            .into_iter()
             .map(|a| u16::from_le_bytes([a[0], a[1]]))
             .collect();
 
@@ -77,13 +76,13 @@ impl VgmParser for VgmMetadata {
             author: String::from_utf16(&acc[7]).unwrap(),
         };
 
-        return VgmMetadata {
+        VgmMetadata {
             english_data: eng_data,
             japanese_data: jap_data,
             date_release: String::from_utf16(&acc[8]).unwrap(),
             name_vgm_creator: String::from_utf16(&acc[9]).unwrap(),
             notes: String::from_utf16(&acc[10]).unwrap(),
-        };
+        }
     }
 }
 
