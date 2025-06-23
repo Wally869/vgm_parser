@@ -1,6 +1,7 @@
 pub mod errors;
 pub mod header;
 pub mod metadata;
+pub mod parser_config;
 pub mod systems;
 pub mod traits;
 pub mod utils;
@@ -10,6 +11,7 @@ pub mod vgm_commands;
 pub use errors::*;
 pub use header::*;
 pub use metadata::*;
+pub use parser_config::*;
 pub use systems::*;
 pub use traits::*;
 pub use validation::*;
@@ -33,6 +35,11 @@ impl VgmFile {
     
     /// Parse VGM file from path with custom validation configuration
     pub fn from_path_with_config(path: &str, config: ValidationConfig) -> VgmResult<Self> {
+        Self::from_path_with_full_config(path, config, ParserConfig::default())
+    }
+    
+    /// Parse VGM file from path with both validation and parser configuration  
+    pub fn from_path_with_full_config(path: &str, validation_config: ValidationConfig, parser_config: ParserConfig) -> VgmResult<Self> {
         let file_data = std::fs::read(path).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => VgmError::FileNotFound {
                 path: path.to_string(),
@@ -55,20 +62,20 @@ impl VgmFile {
             });
         }
         
-        // Check file size against config limits
-        if file_data.len() > config.max_file_size {
+        // Check file size against validation config limits
+        if file_data.len() > validation_config.max_file_size {
             return Err(VgmError::DataSizeExceedsLimit {
                 field: "file_size".to_string(),
                 size: file_data.len(),
-                limit: config.max_file_size,
+                limit: validation_config.max_file_size,
             });
         }
 
         let mut data = Bytes::from(file_data.clone());
-        let vgm_file = VgmFile::from_bytes(&mut data)?;
+        let vgm_file = VgmFile::from_bytes_with_config(&mut data, parser_config)?;
         
         // Perform validation
-        let validator = VgmValidator::new(config);
+        let validator = VgmValidator::new(validation_config);
         validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, file_data.len())?;
         
         Ok(vgm_file)
@@ -76,11 +83,46 @@ impl VgmFile {
     
     /// Parse VGM file from bytes with validation
     pub fn from_bytes_validated(data: &mut Bytes, config: ValidationConfig) -> VgmResult<Self> {
+        Self::from_bytes_with_full_config(data, ParserConfig::default(), config)
+    }
+    
+    /// Parse VGM file from bytes with parser configuration (no validation)
+    pub fn from_bytes_with_config(data: &mut Bytes, parser_config: ParserConfig) -> VgmResult<Self> {
+        let len_data = data.len();
+        let mut resource_tracker = ResourceTracker::new();
+        
+        let header_data = HeaderData::from_bytes_with_config(data, &parser_config, &mut resource_tracker)?;
+        
+        // Security: Prevent integer overflow in offset calculation
+        let vgm_start_pos = header_data.vgm_data_offset
+            .checked_add(0x34)
+            .and_then(|v| usize::try_from(v).ok())
+            .ok_or(VgmError::IntegerOverflow {
+                operation: "VGM data offset calculation".to_string(),
+                details: format!("offset {} + 0x34", header_data.vgm_data_offset),
+            })?;
+
+        while len_data - data.len() < vgm_start_pos {
+            data.get_u8();
+        }
+
+        let metadata = VgmMetadata::from_bytes_with_config(data, &parser_config)?;
+        let commands = parse_commands_with_config(data, &parser_config, &mut resource_tracker)?;
+
+        Ok(VgmFile {
+            header: header_data,
+            commands,
+            metadata,
+        })
+    }
+    
+    /// Parse VGM file from bytes with both parser and validation configuration
+    pub fn from_bytes_with_full_config(data: &mut Bytes, parser_config: ParserConfig, validation_config: ValidationConfig) -> VgmResult<Self> {
         let original_len = data.len();
-        let vgm_file = Self::from_bytes(data)?;
+        let vgm_file = Self::from_bytes_with_config(data, parser_config)?;
         
         // Perform validation
-        let validator = VgmValidator::new(config);
+        let validator = VgmValidator::new(validation_config);
         validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, original_len)?;
         
         Ok(vgm_file)

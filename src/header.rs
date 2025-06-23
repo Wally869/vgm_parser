@@ -133,6 +133,493 @@ pub struct HeaderData {
 }
 
 impl HeaderData {
+    /// Parse VGM header with resource limits and allocation tracking
+    pub fn from_bytes_with_config(data: &mut Bytes, config: &crate::ParserConfig, tracker: &mut crate::ResourceTracker) -> VgmResult<Self> {
+        // Enter parsing context for depth tracking
+        tracker.enter_parsing_context(config)?;
+        
+        let result = Self::from_bytes_internal_with_config(data, config, tracker);
+        
+        // Exit parsing context regardless of success/failure
+        tracker.exit_parsing_context();
+        
+        result
+    }
+    
+    fn from_bytes_internal_with_config(data: &mut Bytes, config: &crate::ParserConfig, _tracker: &mut crate::ResourceTracker) -> VgmResult<Self> {
+        let mut header = HeaderData::default();
+        // get length of data for position calculation
+        let len_data = data.len();
+
+        // validate magic
+        let magic = data.get_u32();
+        let magic_bytes = magic.to_be_bytes();
+        if magic_bytes != *b"Vgm " {
+            let expected = String::from_utf8_lossy(b"Vgm ").to_string();
+            let found = String::from_utf8_lossy(&magic_bytes).to_string();
+            return Err(VgmError::InvalidMagicBytes { 
+                expected, 
+                found, 
+                offset: len_data - data.remaining() - 4 
+            });
+        }
+        header.end_of_file_offset = data.get_u32_le();
+
+        header.version = bcd_from_bytes(&data.get_u32().to_be_bytes()[..]); //(&data.get_u32().to_be_bytes()[..]);
+        header.sn76489_clock = data.get_u32_le();
+
+        // 0x10
+        header.ym2413_clock = data.get_u32_le();
+        header.gd3_offset = data.get_u32_le();
+        header.total_nb_samples = data.get_u32_le();
+        header.loop_offset = data.get_u32_le();
+
+        // 0x20
+        header.loop_nb_samples = data.get_u32_le();
+        header.rate = data.get_u32_le();
+        header.sn76489_feedback = data.get_u16_le();
+        header.sn76489_shift_register_width = data.get_u8();
+        header.sn76489_flags = data.get_u8();
+        header.ym2612_clock = data.get_u32_le();
+
+        // 0x30
+        header.ym2151_clock = data.get_u32_le();
+        header.vgm_data_offset = data.get_u32_le();
+        header.sega_pcm_clock = data.get_u32_le();
+        header.spcm_interface = data.get_u32_le();
+
+        // Security: Prevent integer overflow in VGM data position calculation
+        let pos_start_vgm = header.vgm_data_offset
+            .checked_add(0x34)
+            .ok_or(VgmError::IntegerOverflow {
+                operation: "VGM data position calculation".to_string(),
+                details: format!("vgm_data_offset {} + 0x34", header.vgm_data_offset),
+            })?;
+        
+        // Security: Convert pos_start_vgm to usize safely
+        let pos_start_vgm_usize = usize::try_from(pos_start_vgm)
+            .map_err(|_| VgmError::IntegerOverflow {
+                operation: "VGM position usize conversion".to_string(),
+                details: format!("pos_start_vgm {} cannot fit in usize", pos_start_vgm),
+            })?;
+
+        // 0x40
+        // From here, need to check if is still header, or start of vgm data
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.rf5_c68_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym2203_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym2608_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym2610_b_clock = data.get_u32_le();
+
+        // 0x50
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym3812_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym3526_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.y8950_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ymf262_clock = data.get_u32_le();
+
+        // 0x60
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ymf278_b_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ymf271_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ymz280_b_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.rf5_c164_clock = data.get_u32_le();
+
+        // 0x70
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.pwm_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ay8910_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ay8910_chip_type = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ay8910_flags = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym2203_ay8910_flags = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.ym2608_ay8910_flags = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.volume_modifier = data.get_u8();
+
+        // skip reserved
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        data.get_u8();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.loop_base = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.loop_modifier = data.get_u8();
+
+        // 0x80
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.gb_dmg_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.nes_apu_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.multi_pcm_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.u_pd7759_clock = data.get_u32_le();
+
+        // 0x90
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.okim6258_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.okim6258_flags = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.k054539_flags = data.get_u8();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.c140_chip_type = data.get_u8();
+
+        // skip reserved
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        data.get_u8();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.okim6295_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.k051649_k052539_clock = data.get_u32_le();
+
+        // 0xA0
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.k054539_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.hu_c6280_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.c140_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.k053260_clock = data.get_u32_le();
+
+        // 0xB0
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.pokey_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.qsound_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.scsp_clock = data.get_u32_le();
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        }
+        header.extra_header_offset = data.get_u32_le();
+
+        let pos_extra_header = if header.extra_header_offset == 0 {
+            None
+        } else {
+            // Security: Prevent integer overflow in extra header position calculation
+            Some(header.extra_header_offset
+                .checked_add(0xBC)
+                .and_then(|v| usize::try_from(v).ok())
+                .ok_or(VgmError::IntegerOverflow {
+                    operation: "Extra header position calculation".to_string(),
+                    details: format!("extra_header_offset {} + 0xBC", header.extra_header_offset),
+                })?)
+        };
+
+        // 0xC0
+        // from here need to also check for extra header data
+        // can assume that after extra header is vgm data?
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.wonder_swan_clock = data.get_u32_le();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.vsu_clock = data.get_u32_le();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.saa1099_clock = data.get_u32_le();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.es5503_clock = data.get_u32_le();
+
+        // 0xD0
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.es5506_clock = data.get_u32_le();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.es5503_nb_channels = data.get_u8();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.es5505_es5506_nb_channels = data.get_u8();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.c352_clock_divider = data.get_u8();
+
+        // skip reserved
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        data.get_u8();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.x1010_clock = data.get_u32_le();
+
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.c352_clock = data.get_u32_le();
+
+        // 0xE0
+        if (len_data - data.remaining()) == pos_start_vgm_usize {
+            return Ok(header);
+        } else if let Some(pos_extra_header) = pos_extra_header {
+            if (len_data - data.remaining()) == pos_extra_header {
+                header.parse_extra_header_with_config(data, pos_extra_header, config)?;
+                return Ok(header);
+            }
+        }
+        header.ga20_clock = data.get_u32_le();
+
+        Ok(header)
+    }
+    
+    fn parse_extra_header_with_config(&mut self, data: &mut Bytes, extra_header_pos: usize, config: &crate::ParserConfig) -> VgmResult<()> {
+        // use this to track pos in the extra header?
+        let remaining_bytes = data.remaining();
+
+        let mut extra_header = ExtraHeaderData::default();
+
+        extra_header.header_size = data.get_u32_le();
+        extra_header.chip_clock_offset = data.get_u32_le();
+        extra_header.chip_vol_offset = data.get_u32_le();
+
+        // should be options, no guarantee that both are set
+        let chip_clock_pos = if extra_header.chip_clock_offset == 0 {
+            None
+        } else {
+            // Security: Prevent integer overflow in chip clock position calculation
+            Some(extra_header_pos
+                .checked_add(4)
+                .and_then(|v| v.checked_add(extra_header.chip_clock_offset as usize))
+                .ok_or(VgmError::IntegerOverflow {
+                    operation: "Chip clock position calculation".to_string(),
+                    details: format!("extra_header_pos {} + 4 + chip_clock_offset {}", extra_header_pos, extra_header.chip_clock_offset),
+                })?)
+        };
+
+        let chip_vol_pos = if extra_header.chip_vol_offset == 0 {
+            None
+        } else {
+            // Security: Prevent integer overflow in chip volume position calculation
+            Some(extra_header_pos
+                .checked_add(8)
+                .and_then(|v| v.checked_add(extra_header.chip_vol_offset as usize))
+                .ok_or(VgmError::IntegerOverflow {
+                    operation: "Chip volume position calculation".to_string(),
+                    details: format!("extra_header_pos {} + 8 + chip_vol_offset {}", extra_header_pos, extra_header.chip_vol_offset),
+                })?)
+        };
+
+        let mut chip_clock_entries: Vec<ChipClockEntry> = vec![];
+        let mut chip_vol_entries: Vec<ChipVolumeEntry> = vec![];
+        // iter twice, no guarantees on ordering of both headers here?
+        // should be contiguous
+        for _ in 0..2 {
+            let curr_pos = extra_header_pos + remaining_bytes - data.remaining();
+            if let Some(chip_clock_pos) = chip_clock_pos {
+                if chip_clock_pos == curr_pos {
+                    let nb_entries = data.get_u8();
+                    
+                    // Security: Check chip clock entry count against config limits
+                    config.check_chip_entries(nb_entries, 0)?;
+                    
+                    for _i in 0..nb_entries {
+                        let curr_entry = ChipClockEntry {
+                            chip_id: data.get_u8(),
+                            clock: data.get_u32_le(),
+                        };
+
+                        chip_clock_entries.push(curr_entry);
+                    }
+                }
+            }
+
+            if let Some(chip_vol_pos) = chip_vol_pos {
+                if chip_vol_pos == curr_pos {
+                    let nb_entries = data.get_u8();
+                    
+                    // Security: Check chip volume entry count against config limits  
+                    config.check_chip_entries(0, nb_entries)?;
+                    
+                    for _i in 0..nb_entries {
+                        let curr_entry = ChipVolumeEntry {
+                            chip_id: data.get_u8(),
+                            flags: data.get_u8(),
+                            volume: data.get_u16_le(),
+                        };
+
+                        chip_vol_entries.push(curr_entry);
+                    }
+                }
+            }
+        }
+
+        extra_header.chip_clock_entries = chip_clock_entries;
+        extra_header.chip_volume_entries = chip_vol_entries;
+
+        self.extra_header = extra_header;
+        Ok(())
+    }
+
     fn parse_extra_header(&mut self, data: &mut Bytes, extra_header_pos: usize) -> VgmResult<()> {
         // use this to track pos in the extra header?
         let remaining_bytes = data.remaining();

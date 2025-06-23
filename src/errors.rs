@@ -87,6 +87,13 @@ pub enum VgmError {
         actual: usize,
     },
 
+    /// Invalid data format
+    #[error("Invalid data format for {field}: {details}")]
+    InvalidDataFormat { 
+        field: String, 
+        details: String,
+    },
+
     // ========== COMMAND PARSING ERRORS (4000-4099) ==========
     /// Unknown or unsupported command opcode
     #[error("Unknown command opcode 0x{opcode:02X} at position {position}")]
@@ -215,6 +222,7 @@ impl VgmError {
             Self::InvalidBcdData { .. } => 3002,
             Self::BufferUnderflow { .. } => 3003,
             Self::InvalidDataLength { .. } => 3004,
+            Self::InvalidDataFormat { .. } => 3005,
             
             // Command Parsing Errors (4000-4099)
             Self::UnknownCommand { .. } => 4001,
@@ -437,6 +445,7 @@ mod tests {
             VgmError::InvalidBcdData { field: "test".to_string(), data: vec![0] },
             VgmError::BufferUnderflow { offset: 0, needed: 0, available: 0 },
             VgmError::InvalidDataLength { field: "test".to_string(), expected: 0, actual: 0 },
+            VgmError::InvalidDataFormat { field: "test".to_string(), details: "test".to_string() },
             VgmError::UnknownCommand { opcode: 0, position: 0 },
             VgmError::IncompleteCommand { opcode: 0, position: 0, expected_bytes: 0, available_bytes: 0 },
             VgmError::InvalidCommandParameters { opcode: 0, position: 0, reason: "test".to_string() },
