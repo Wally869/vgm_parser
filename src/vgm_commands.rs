@@ -2,6 +2,7 @@
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
+use crate::errors::{VgmError, VgmResult};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub enum Commands {
@@ -246,25 +247,49 @@ pub enum Commands {
 }
 
 pub fn parse_commands(data: &mut Bytes) -> Vec<Commands> {
-    let mut commands = vec![];
-    let _remaining_at_start = data.len();
-    let mut counter = 0;
-    loop {
-        let curr_command = Commands::from_bytes(data);
-        match curr_command {
-            Commands::EndOfSoundData => {
-                commands.push(curr_command);
-                break;
-            },
-            _ => commands.push(curr_command),
+    // Use default parser config for backward compatibility
+    let config = crate::ParserConfig::default();
+    let mut tracker = crate::ResourceTracker::new();
+    
+    match parse_commands_with_config(data, &config, &mut tracker) {
+        Ok(commands) => commands,
+        Err(e) => {
+            println!("Warning: Command parsing failed with error: {}", e);
+            vec![] // Return empty commands on error for backward compatibility
         }
-        //println!("curr pos: {:8X?}", remaining_at_start - data.len());
-        //break;
-        counter += 1;
     }
-    println!("counter: {}", counter);
+}
 
-    commands
+/// Parse commands with resource tracking and limits
+pub fn parse_commands_with_config(
+    data: &mut Bytes, 
+    config: &crate::ParserConfig, 
+    tracker: &mut crate::ResourceTracker
+) -> crate::VgmResult<Vec<Commands>> {
+    let mut commands = Vec::new();
+    let _remaining_at_start = data.len();
+    
+    loop {
+        // Check command count limit before parsing each command
+        tracker.track_command(config)?;
+        
+        match Commands::from_bytes_with_config(data, config, tracker) {
+            Ok(curr_command) => {
+                match curr_command {
+                    Commands::EndOfSoundData => {
+                        commands.push(curr_command);
+                        break;
+                    },
+                    _ => commands.push(curr_command),
+                }
+            },
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+
+    Ok(commands)
 }
 
 pub fn parse_commands_safe(data: &mut Bytes) -> Vec<Commands> {
@@ -280,8 +305,8 @@ pub fn parse_commands_safe(data: &mut Bytes) -> Vec<Commands> {
                 },
                 _ => commands.push(cmd),
             },
-            Err(val) => {
-                println!("Unknown command: {:2X?}", val);
+            Err(e) => {
+                println!("Command parsing error: {}", e);
                 break;
             },
         }
@@ -290,15 +315,17 @@ pub fn parse_commands_safe(data: &mut Bytes) -> Vec<Commands> {
     commands
 }
 
-pub fn write_commands(buffer: &mut BytesMut, commands: &Vec<Commands>) {
+pub fn write_commands(buffer: &mut BytesMut, commands: &Vec<Commands>) -> VgmResult<()> {
     for cmd in commands {
-        buffer.put(&cmd.clone().to_bytes()[..]);
+        let cmd_bytes = cmd.clone().to_bytes()?;
+        buffer.put(&cmd_bytes[..]);
     }
+    Ok(())
 }
 
 impl Commands {
-    pub fn to_bytes(self) -> Vec<u8> {
-        match self {
+    pub fn to_bytes(self) -> VgmResult<Vec<u8>> {
+        let bytes = match self {
             Commands::AY8910StereoMask { value } => {
                 vec![0x31, value]
             },
@@ -378,7 +405,11 @@ impl Commands {
                 out_data
             },
             Commands::PCMRAMWrite { offset: _, data: _ } => {
-                panic!("not implemented")
+                return Err(VgmError::FeatureNotSupported {
+                    feature: "PCM RAM Write command serialization".to_string(),
+                    version: 0, // Unknown version requirement
+                    min_version: 0, // Would need to research the actual VGM version requirement
+                });
             },
 
             Commands::WaitNSamplesPlus1 { n } => vec![0x70 + n],
@@ -389,7 +420,11 @@ impl Commands {
                 register: _,
                 value: _,
             } => {
-                panic!("not implemented")
+                return Err(VgmError::FeatureNotSupported {
+                    feature: "DAC Stream Control Write command serialization".to_string(),
+                    version: 0, // Unknown version requirement
+                    min_version: 0, // Would need to research the actual VGM version requirement
+                });
             },
 
             Commands::AY8910Write { register, value } => {
@@ -538,14 +573,16 @@ impl Commands {
                 rslt.extend(value.to_le_bytes());
                 rslt
             }, // _ => panic!("Not implemented"),
-        }
+        };
+        
+        Ok(bytes)
     }
 
-    pub fn from_bytes(bytes: &mut Bytes) -> Commands {
+    pub fn from_bytes(bytes: &mut Bytes) -> VgmResult<Commands> {
         let command_val = bytes.get_u8();
         
 
-        match command_val {
+        let command = match command_val {
             0x31 => {
                 // handle AY8910 stereo mask command
                 // `bytes.get(1)` gives you the `dd` value
@@ -695,6 +732,26 @@ impl Commands {
                 bytes.get_u8();
                 let data_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
+                
+                // Security: Prevent DoS attacks from malicious files with excessive data sizes
+                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                if data_size > MAX_DATA_BLOCK_SIZE {
+                    return Err(VgmError::DataSizeExceedsLimit {
+                        field: "DataBlock".to_string(),
+                        size: data_size as usize,
+                        limit: MAX_DATA_BLOCK_SIZE as usize,
+                    });
+                }
+                
+                // Security: Ensure sufficient data is available before allocation
+                if bytes.remaining() < data_size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: Track actual position
+                        needed: data_size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
                 Commands::DataBlock {
                     data_type,
                     data_size,
@@ -916,13 +973,17 @@ impl Commands {
                 value: bytes.get_u16_le(),
             },
             _ => {
-                println!("UNK instruction: {:02X?}", command_val);
-                panic!("unk instruction")
+                return Err(VgmError::UnknownCommand { 
+                    opcode: command_val, 
+                    position: 0  // We'd need to track position properly in a real implementation
+                });
             },
-        }
+        };
+        
+        Ok(command)
     }
 
-    pub fn from_bytes_safe(bytes: &mut Bytes) -> Result<Commands, u8> {
+    pub fn from_bytes_safe(bytes: &mut Bytes) -> VgmResult<Commands> {
         let command_val = bytes.get_u8();
         let command = match command_val {
             0x31 => {
@@ -1070,11 +1131,30 @@ impl Commands {
             },
             0x67 => {
                 // handle data block command
-                // handle data block command
                 // skip compatibility arg (0x66)
                 bytes.get_u8();
                 let data_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
+                
+                // Security: Prevent DoS attacks from malicious files with excessive data sizes
+                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                if data_size > MAX_DATA_BLOCK_SIZE {
+                    return Err(VgmError::DataSizeExceedsLimit {
+                        field: "DataBlock".to_string(),
+                        size: data_size as usize,
+                        limit: MAX_DATA_BLOCK_SIZE as usize,
+                    });
+                }
+                
+                // Security: Ensure sufficient data is available before allocation
+                if bytes.remaining() < data_size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: Track actual position
+                        needed: data_size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
                 Commands::DataBlock {
                     data_type,
                     data_size,
@@ -1296,9 +1376,407 @@ impl Commands {
                 value: bytes.get_u16_le(),
             },
             _ => {
-                println!("UNK instruction: {:02X?}", command_val);
-                //panic!("unk instruction")
-                return Err(command_val);
+                return Err(VgmError::UnknownCommand { 
+                    opcode: command_val, 
+                    position: 0  // TODO: Track actual position
+                });
+            },
+        };
+
+        Ok(command)
+    }
+    
+    /// Parse command with resource tracking and allocation limits
+    pub fn from_bytes_with_config(
+        bytes: &mut Bytes,
+        config: &crate::ParserConfig,
+        tracker: &mut crate::ResourceTracker
+    ) -> VgmResult<Commands> {
+        let command_val = bytes.get_u8();
+        
+        let command = match command_val {
+            0x31 => {
+                Commands::AY8910StereoMask {
+                    value: bytes.get_u8(),
+                }
+            },
+            0x4F => {
+                Commands::GameGearPSGStereo {
+                    value: bytes.get_u8(),
+                }
+            },
+            0x50 => {
+                Commands::PSGWrite {
+                    value: bytes.get_u8(),
+                }
+            },
+            0x51 => {
+                Commands::YM2413Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x52 => {
+                Commands::YM2612Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x53 => {
+                Commands::YM2612Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x54 => {
+                Commands::YM2151Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x55 => {
+                Commands::YM2203Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x56 => {
+                Commands::YM2608Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x57 => {
+                Commands::YM2608Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x58 => {
+                Commands::YM2610Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x59 => {
+                Commands::YM2610Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5A => {
+                Commands::YM3812Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5B => {
+                Commands::YM3526Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5C => {
+                Commands::Y8950Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5D => {
+                Commands::YMZ280BWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5E => {
+                Commands::YMF262Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x5F => {
+                Commands::YMF262Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x61 => {
+                Commands::WaitNSamples {
+                    n: bytes.get_u16_le(),
+                }
+            },
+            0x62 => Commands::Wait735Samples,
+            0x63 => Commands::Wait882Samples,
+            0x66 => Commands::EndOfSoundData,
+            0x67 => {
+                // DataBlock with security checks
+                let data_type = bytes.get_u8();
+                let data_size = bytes.get_u32_le();
+                
+                // Check DataBlock size against config limits
+                config.check_data_block_size(data_size)?;
+                
+                // Track DataBlock allocation
+                tracker.track_data_block(config, data_size)?;
+                
+                // Security: Ensure sufficient data is available before allocation
+                if bytes.remaining() < data_size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: Track actual position
+                        needed: data_size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
+                // Use allocation guard for safe collection
+                let mut guard = crate::AllocationGuard::new(tracker, config);
+                let data = guard.collect_with_limit(
+                    (0..data_size as usize).map(|_| bytes.get_u8()),
+                    data_size as usize,
+                    "DataBlock"
+                )?;
+                
+                Commands::DataBlock {
+                    data_type,
+                    data_size,
+                    data,
+                }
+            },
+            0x68 => {
+                // PCMRAMWrite - currently incomplete, but with proper structure for future implementation
+                let _offset = bytes.get_u32_le();
+                let _size = bytes.get_u32_le();
+                
+                // TODO: Implement proper PCMRAMWrite parsing with size limits
+                // For now, return empty implementation to maintain compatibility
+                Commands::PCMRAMWrite {
+                    offset: 0,
+                    data: vec![],
+                }
+            },
+            0x70..=0x7F => {
+                Commands::WaitNSamplesPlus1 {
+                    n: command_val - 0x70,
+                }
+            },
+            0x80..=0x8F => {
+                Commands::YM2612Port0Address2AWriteWait {
+                    n: command_val - 0x80,
+                }
+            },
+            0x90 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x91 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x92 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x93 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x94 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0x95 => {
+                Commands::DACStreamControlWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xA0 => {
+                Commands::AY8910Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB0 => {
+                Commands::RF5C68Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB1 => {
+                Commands::RF5C164Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB2 => {
+                Commands::PWMWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u16_le(),
+                }
+            },
+            0xB3 => {
+                Commands::GameBoyDMGWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB4 => {
+                Commands::NESAPUWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB5 => {
+                Commands::MultiPCMWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB6 => {
+                Commands::uPD7759Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB7 => {
+                Commands::OKIM6258Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB8 => {
+                Commands::OKIM6295Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xB9 => {
+                Commands::HuC6280Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBA => {
+                Commands::K053260Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBB => {
+                Commands::PokeyWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBC => {
+                Commands::WonderSwanWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBD => {
+                Commands::SAA1099Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBE => {
+                Commands::ES5506Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xBF => {
+                Commands::GA20Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xC0 => {
+                Commands::SegaPCMWrite {
+                    offset: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xC1 => {
+                Commands::RF5C68WriteOffset {
+                    offset: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xC2 => {
+                Commands::RF5C164WriteOffset {
+                    offset: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD0 => {
+                Commands::YMF278BWrite {
+                    port: bytes.get_u8(),
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD1 => {
+                Commands::YMF271Write {
+                    port: bytes.get_u8(),
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD2 => {
+                Commands::SCC1Write {
+                    port: bytes.get_u8(),
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD3 => {
+                Commands::K054539Write {
+                    register: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD4 => {
+                Commands::C140Write {
+                    register: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD5 => {
+                Commands::ES5503Write {
+                    register: bytes.get_u16_le(),
+                    value: bytes.get_u8(),
+                }
+            },
+            0xD6 => {
+                Commands::ES5506Write16 {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u16_le(),
+                }
+            },
+            0xE0 => Commands::SeekPCM {
+                offset: bytes.get_u32_le(),
+            },
+            0xE1 => Commands::C352Write {
+                register: bytes.get_u16_le(),
+                value: bytes.get_u16_le(),
+            },
+            _ => {
+                return Err(VgmError::UnknownCommand { 
+                    opcode: command_val, 
+                    position: 0  // TODO: Track actual position
+                });
             },
         };
 
