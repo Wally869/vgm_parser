@@ -5,8 +5,6 @@ pub mod systems;
 pub mod traits;
 pub mod utils;
 pub mod vgm_commands;
-pub mod custom_encoder;
-pub mod tokenizing;
 
 pub use errors::*;
 pub use header::*;
@@ -29,26 +27,20 @@ impl VgmFile {
     pub fn from_path(path: &str) -> Self {
         let file_data = std::fs::read(path).unwrap();
         let mut data = Bytes::from(file_data);
-        let vgm_file = VgmFile::from_bytes(&mut data);
-        vgm_file
+        
+        VgmFile::from_bytes(&mut data)
     }
 
     pub fn has_data_block(&self) -> bool {
         for cmd in &self.commands {
-            match cmd {
-                Commands::DataBlock { .. } => return true,
-                _ => (),
-            }
+            if let Commands::DataBlock { .. } = cmd { return true }
         }
         false
     }
 
     pub fn has_pcm_write(&self) -> bool {
         for cmd in &self.commands {
-            match cmd {
-                Commands::PCMRAMWrite { .. } => return true,
-                _ => (),
-            }
+            if let Commands::PCMRAMWrite { .. } = cmd { return true }
         }
         false
     }
@@ -82,33 +74,55 @@ impl VgmWriter for VgmFile {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use super::*;
-    use std::fs;
+
+    /// Get project root directory for test file paths
+    fn get_project_root() -> PathBuf {
+        // Try to find project root by looking for Cargo.toml
+        let mut current = std::env::current_dir().expect("Failed to get current directory");
+        loop {
+            if current.join("Cargo.toml").exists() {
+                return current;
+            }
+            if !current.pop() {
+                // If we can't find Cargo.toml, assume current directory is project root
+                return std::env::current_dir().expect("Failed to get current directory");
+            }
+        }
+    }
+
+    /// Get path relative to project root
+    fn project_path(relative_path: &str) -> PathBuf {
+        get_project_root().join(relative_path)
+    }
 
     #[test]
     fn test_vgm_parse_write_cycle() {
+        // Use project-relative paths
+        let test_file = project_path("vgm_files/Into Battle.vgm");
+        
         // Skip test if no test files available
-        let test_file = "./vgm_files/Into Battle.vgm";
-        if !std::path::Path::new(test_file).exists() {
-            println!("Skipping test - no test VGM file found");
+        if !test_file.exists() {
+            println!("Skipping test_vgm_parse_write_cycle - test VGM file not found at {:?}", test_file);
             return;
         }
 
         // Parse the file
-        let vgm = VgmFile::from_path(test_file);
-        
+        let vgm = VgmFile::from_path(test_file.to_str().expect("Invalid path encoding"));
+
         // Basic assertions
         assert_eq!(vgm.header.version, 151); // v1.51
-        assert!(vgm.commands.len() > 0);
-        
+        assert!(!vgm.commands.is_empty());
+
         // Test round-trip
         let mut buffer = BytesMut::new();
         vgm.to_bytes(&mut buffer);
-        
+
         // Parse again
         let mut data = Bytes::from(buffer.to_vec());
         let vgm2 = VgmFile::from_bytes(&mut data);
-        
+
         // Compare
         assert_eq!(vgm.header.version, vgm2.header.version);
         assert_eq!(vgm.commands.len(), vgm2.commands.len());

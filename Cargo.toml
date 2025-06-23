@@ -7,19 +7,11 @@ edition = "2021"
 name = "vgm_parser"
 path = "src/lib.rs"
 
-[[bin]]
-name = "vgm_parser"
-path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bcd-numbers = { git="https://github.com/rlkandela/bcd-numbers/"}
-byteorder = "1.4.3"
 bytes = "1.5.0"
-# flate2 = { version = "1.0.28", features = ["zlib-ng"], default-features = false }
-lazy_static = "1.4.0"
-phf = { version = "0.11.2", features = ["macros"] }
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"
 thiserror = "1.0.38"

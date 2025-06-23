@@ -13,7 +13,4 @@ pub enum LibError {
 
     #[error("Failed to parse GD3 data")]
     FailedParseGd3,
-
-
-
 }

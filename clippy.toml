@@ -1,0 +1,21 @@
+# clippy configuration for vgm_parser
+# This configures linting rules for better code quality
+
+# Set reasonable thresholds
+cognitive-complexity-threshold = 25
+type-complexity-threshold = 250
+too-many-arguments-threshold = 8
+too-many-lines-threshold = 150
+trivial-copy-size-limit = 128
+
+# Performance and memory related
+avoid-breaking-exported-api = false
+
+# Style preferences
+enum-variant-name-threshold = 3
+literal-representation-threshold = 1
+
+# Allow some common patterns in parsing/binary format code
+# (VGM parsing often requires specific numeric patterns)
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true
