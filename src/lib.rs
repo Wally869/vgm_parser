@@ -74,19 +74,42 @@ impl VgmWriter for VgmFile {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use super::*;
+
+    /// Get project root directory for test file paths
+    fn get_project_root() -> PathBuf {
+        // Try to find project root by looking for Cargo.toml
+        let mut current = std::env::current_dir().expect("Failed to get current directory");
+        loop {
+            if current.join("Cargo.toml").exists() {
+                return current;
+            }
+            if !current.pop() {
+                // If we can't find Cargo.toml, assume current directory is project root
+                return std::env::current_dir().expect("Failed to get current directory");
+            }
+        }
+    }
+
+    /// Get path relative to project root
+    fn project_path(relative_path: &str) -> PathBuf {
+        get_project_root().join(relative_path)
+    }
 
     #[test]
     fn test_vgm_parse_write_cycle() {
+        // Use project-relative paths
+        let test_file = project_path("vgm_files/Into Battle.vgm");
+        
         // Skip test if no test files available
-        let test_file = "./vgm_files/Into Battle.vgm";
-        if !std::path::Path::new(test_file).exists() {
-            println!("Skipping test - no test VGM file found");
+        if !test_file.exists() {
+            println!("Skipping test_vgm_parse_write_cycle - test VGM file not found at {:?}", test_file);
             return;
         }
 
         // Parse the file
-        let vgm = VgmFile::from_path(test_file);
+        let vgm = VgmFile::from_path(test_file.to_str().expect("Invalid path encoding"));
 
         // Basic assertions
         assert_eq!(vgm.header.version, 151); // v1.51
