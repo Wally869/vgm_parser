@@ -59,22 +59,22 @@ impl Registry {
 pub fn find_clock_commands(header: &HeaderData) -> Vec<ExtendedInstructionSet> {
     let mut chip_payloads: Vec<ChipPayload> = vec![];
 
-    if header.SN76489_clock != 0 {
+    if header.sn76489_clock != 0 {
         chip_payloads.push(
-            ChipPayload::new(System::SN76489, header.SN76489_clock)
+            ChipPayload::new(System::SN76489, header.sn76489_clock)
         );
     }
 
     // 0x10
     chip_payloads.push(
-        ChipPayload::new(System::YM2413, header.YM2413_clock)
+        ChipPayload::new(System::YM2413, header.ym2413_clock)
     );
 
 
 
     // 0x20
     chip_payloads.push(
-        ChipPayload::new(System::YM2612, header.YM2612_clock)
+        ChipPayload::new(System::YM2612, header.ym2612_clock)
     );
 
 
@@ -84,66 +84,66 @@ pub fn find_clock_commands(header: &HeaderData) -> Vec<ExtendedInstructionSet> {
 
     // 0x30
     chip_payloads.push(
-        ChipPayload::new(System::YM2151, header.YM2151_clock)
+        ChipPayload::new(System::YM2151, header.ym2151_clock)
     );
 
     chip_payloads.push(
-        ChipPayload::new(System::SegaPcm, header.SegaPCM_clock)
+        ChipPayload::new(System::SegaPcm, header.sega_pcm_clock)
     );
 
     //pub SPCM_interface: u32,
 
     // 0x40
     chip_payloads.push(
-        ChipPayload::new(System::RF5C68, header.RF5C68_clock)
+        ChipPayload::new(System::RF5C68, header.rf5_c68_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YM2203, header.YM2203_clock)
+        ChipPayload::new(System::YM2203, header.ym2203_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YM2608, header.YM2608_clock)
+        ChipPayload::new(System::YM2608, header.ym2608_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YM2610, header.YM2610B_clock)
+        ChipPayload::new(System::YM2610, header.ym2610_b_clock)
     );
 
 
     // 0x50
     chip_payloads.push(
-        ChipPayload::new(System::YM3812, header.YM3812_clock)
+        ChipPayload::new(System::YM3812, header.ym3812_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YM3526, header.YM3526_clock)
+        ChipPayload::new(System::YM3526, header.ym3526_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::Y8950, header.Y8950_clock)
+        ChipPayload::new(System::Y8950, header.y8950_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YMF262, header.YMF262_clock)
+        ChipPayload::new(System::YMF262, header.ymf262_clock)
     );
 
 
     // 0x60
     chip_payloads.push(
-        ChipPayload::new(System::YMF278B, header.YMF278B_clock)
+        ChipPayload::new(System::YMF278B, header.ymf278_b_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YMF271, header.YMF271_clock)
+        ChipPayload::new(System::YMF271, header.ymf271_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::YMZ280B, header.YMZ280B_clock)
+        ChipPayload::new(System::YMZ280B, header.ymz280_b_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::RF5C164, header.RF5C164_clock)
+        ChipPayload::new(System::RF5C164, header.rf5_c164_clock)
     );
 
 
     // 0x70
     chip_payloads.push(
-        ChipPayload::new(System::Pwm, header.PWM_clock)
+        ChipPayload::new(System::Pwm, header.pwm_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::AY8910, header.AY8910_clock)
+        ChipPayload::new(System::AY8910, header.ay8910_clock)
     );
 
     //pub AY8910_chip_type: u8,
@@ -156,31 +156,31 @@ pub fn find_clock_commands(header: &HeaderData) -> Vec<ExtendedInstructionSet> {
 
     // 0x80
     chip_payloads.push(
-        ChipPayload::new(System::GameboyDmg, header.GB_DMG_clock)
+        ChipPayload::new(System::GameboyDmg, header.gb_dmg_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::NesApu, header.NES_APU_clock)
+        ChipPayload::new(System::NesApu, header.nes_apu_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::MultiPcm, header.MultiPCM_clock)
+        ChipPayload::new(System::MultiPcm, header.multi_pcm_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::UPD7759, header.uPD7759_clock)
+        ChipPayload::new(System::UPD7759, header.u_pd7759_clock)
     );
 
 
 
     // 0x90
     chip_payloads.push(
-        ChipPayload::new(System::OKIM6258, header.OKIM6258_clock)
+        ChipPayload::new(System::OKIM6258, header.okim6258_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::OKIM6295, header.OKIM6295_clock)
+        ChipPayload::new(System::OKIM6295, header.okim6295_clock)
     );
 
     chip_payloads.push(
         // pub K051649_K052539_clock: u32,
-        ChipPayload::new(System::K051649, header.K051649_K052539_clock)
+        ChipPayload::new(System::K051649, header.k051649_k052539_clock)
     );
 
     // pub OKIM6258_flags: u8,
@@ -189,55 +189,55 @@ pub fn find_clock_commands(header: &HeaderData) -> Vec<ExtendedInstructionSet> {
 
     // 0xA0
     chip_payloads.push(
-        ChipPayload::new(System::K054539, header.K054539_clock)
+        ChipPayload::new(System::K054539, header.k054539_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::HuC6280, header.HuC6280_clock)
+        ChipPayload::new(System::HuC6280, header.hu_c6280_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::C140, header.C140_clock)
+        ChipPayload::new(System::C140, header.c140_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::K053260, header.K053260_clock)
+        ChipPayload::new(System::K053260, header.k053260_clock)
     );
 
 
     // 0xB0
     chip_payloads.push(
-        ChipPayload::new(System::Pokey, header.Pokey_clock)
+        ChipPayload::new(System::Pokey, header.pokey_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::QSound, header.QSound_clock)
+        ChipPayload::new(System::QSound, header.qsound_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::SCSP, header.SCSP_clock)
+        ChipPayload::new(System::SCSP, header.scsp_clock)
     );
 
     // pub extra_header_offset: u32,
 
     // 0xC0
     chip_payloads.push(
-        ChipPayload::new(System::WonderSwan, header.WonderSwan_clock)
+        ChipPayload::new(System::WonderSwan, header.wonder_swan_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::VSU, header.VSU_clock)
+        ChipPayload::new(System::VSU, header.vsu_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::SAA1099, header.SAA1099_clock)
+        ChipPayload::new(System::SAA1099, header.saa1099_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::ES5503, header.ES5503_clock)
+        ChipPayload::new(System::ES5503, header.es5503_clock)
     );
 
     // 0xD0
     chip_payloads.push(
-        ChipPayload::new(System::ES5506, header.ES5506_clock)
+        ChipPayload::new(System::ES5506, header.es5506_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::X1_010, header.X1010_clock)
+        ChipPayload::new(System::X1_010, header.x1010_clock)
     );
     chip_payloads.push(
-        ChipPayload::new(System::C352, header.C352_clock)
+        ChipPayload::new(System::C352, header.c352_clock)
     );
 
     // pub ES5503_nb_channels: u8,
@@ -246,7 +246,7 @@ pub fn find_clock_commands(header: &HeaderData) -> Vec<ExtendedInstructionSet> {
 
     // 0xE0
     chip_payloads.push(
-        ChipPayload::new(System::GA20, header.GA20_clock)
+        ChipPayload::new(System::GA20, header.ga20_clock)
     );
 
     // prune chips with 0 clock 

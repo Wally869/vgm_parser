@@ -247,7 +247,7 @@ pub enum Commands {
 
 pub fn parse_commands(data: &mut Bytes) -> Vec<Commands> {
     let mut commands = vec![];
-    let remaining_at_start = data.len();
+    let _remaining_at_start = data.len();
     let mut counter = 0;
     loop {
         let curr_command = Commands::from_bytes(data);
@@ -377,7 +377,7 @@ impl Commands {
                 out_data.extend(data);
                 return out_data;
             }
-            Commands::PCMRAMWrite { offset, data } => {
+            Commands::PCMRAMWrite { offset: _, data: _ } => {
                 panic!("not implemented")
             }
 
@@ -385,7 +385,7 @@ impl Commands {
 
             Commands::YM2612Port0Address2AWriteWait { n } => return vec![0x80 + n],
 
-            Commands::DACStreamControlWrite { register, value } => {
+            Commands::DACStreamControlWrite { register: _, value: _ } => {
                 panic!("not implemented")
             }
 

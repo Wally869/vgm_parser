@@ -59,7 +59,6 @@ pub fn decimal_to_bcd(decimal: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod test_utils {
-    use bytes::{Bytes, Buf};
 
     use crate::utils::decimal_to_bcd;
 

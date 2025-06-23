@@ -83,7 +83,6 @@ impl VgmWriter for VgmFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn test_vgm_parse_write_cycle() {

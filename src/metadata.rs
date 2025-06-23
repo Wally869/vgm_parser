@@ -40,7 +40,7 @@ impl VgmParser for VgmMetadata {
             panic!("Unsupported Gd3 Version");
         }
 
-        let data_length = data.slice(8..12).get_u32_le();
+        let _data_length = data.slice(8..12).get_u32_le();
 
         // convert bytes to Vec<u16>
         let data: Vec<u16> = data
