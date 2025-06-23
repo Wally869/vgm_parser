@@ -288,8 +288,8 @@ pub fn parse_commands_safe(data: &mut Bytes) -> Vec<Commands> {
                 },
                 _ => commands.push(cmd),
             },
-            Err(val) => {
-                println!("Unknown command: {:2X?}", val);
+            Err(e) => {
+                println!("Command parsing error: {}", e);
                 break;
             },
         }
@@ -715,6 +715,26 @@ impl Commands {
                 bytes.get_u8();
                 let data_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
+                
+                // Security: Prevent DoS attacks from malicious files with excessive data sizes
+                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                if data_size > MAX_DATA_BLOCK_SIZE {
+                    return Err(VgmError::DataSizeExceedsLimit {
+                        field: "DataBlock".to_string(),
+                        size: data_size as usize,
+                        limit: MAX_DATA_BLOCK_SIZE as usize,
+                    });
+                }
+                
+                // Security: Ensure sufficient data is available before allocation
+                if bytes.remaining() < data_size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: Track actual position
+                        needed: data_size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
                 Commands::DataBlock {
                     data_type,
                     data_size,
@@ -946,7 +966,7 @@ impl Commands {
         Ok(command)
     }
 
-    pub fn from_bytes_safe(bytes: &mut Bytes) -> Result<Commands, u8> {
+    pub fn from_bytes_safe(bytes: &mut Bytes) -> VgmResult<Commands> {
         let command_val = bytes.get_u8();
         let command = match command_val {
             0x31 => {
@@ -1094,11 +1114,30 @@ impl Commands {
             },
             0x67 => {
                 // handle data block command
-                // handle data block command
                 // skip compatibility arg (0x66)
                 bytes.get_u8();
                 let data_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
+                
+                // Security: Prevent DoS attacks from malicious files with excessive data sizes
+                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                if data_size > MAX_DATA_BLOCK_SIZE {
+                    return Err(VgmError::DataSizeExceedsLimit {
+                        field: "DataBlock".to_string(),
+                        size: data_size as usize,
+                        limit: MAX_DATA_BLOCK_SIZE as usize,
+                    });
+                }
+                
+                // Security: Ensure sufficient data is available before allocation
+                if bytes.remaining() < data_size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: Track actual position
+                        needed: data_size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
                 Commands::DataBlock {
                     data_type,
                     data_size,
@@ -1320,9 +1359,10 @@ impl Commands {
                 value: bytes.get_u16_le(),
             },
             _ => {
-                println!("UNK instruction: {:02X?}", command_val);
-                //panic!("unk instruction")
-                return Err(command_val);
+                return Err(VgmError::UnknownCommand { 
+                    opcode: command_val, 
+                    position: 0  // TODO: Track actual position
+                });
             },
         };
 

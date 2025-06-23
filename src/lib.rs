@@ -4,6 +4,7 @@ pub mod metadata;
 pub mod systems;
 pub mod traits;
 pub mod utils;
+pub mod validation;
 pub mod vgm_commands;
 
 pub use errors::*;
@@ -11,6 +12,7 @@ pub use header::*;
 pub use metadata::*;
 pub use systems::*;
 pub use traits::*;
+pub use validation::*;
 pub use vgm_commands::*;
 
 use bytes::{Buf, Bytes, BytesMut};
@@ -24,7 +26,13 @@ pub struct VgmFile {
 }
 
 impl VgmFile {
+    /// Parse VGM file from path with default validation
     pub fn from_path(path: &str) -> VgmResult<Self> {
+        Self::from_path_with_config(path, ValidationConfig::default())
+    }
+    
+    /// Parse VGM file from path with custom validation configuration
+    pub fn from_path_with_config(path: &str, config: ValidationConfig) -> VgmResult<Self> {
         let file_data = std::fs::read(path).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => VgmError::FileNotFound {
                 path: path.to_string(),
@@ -46,9 +54,47 @@ impl VgmFile {
                 size: file_data.len(),
             });
         }
+        
+        // Check file size against config limits
+        if file_data.len() > config.max_file_size {
+            return Err(VgmError::DataSizeExceedsLimit {
+                field: "file_size".to_string(),
+                size: file_data.len(),
+                limit: config.max_file_size,
+            });
+        }
 
-        let mut data = Bytes::from(file_data);
-        VgmFile::from_bytes(&mut data)
+        let mut data = Bytes::from(file_data.clone());
+        let vgm_file = VgmFile::from_bytes(&mut data)?;
+        
+        // Perform validation
+        let validator = VgmValidator::new(config);
+        validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, file_data.len())?;
+        
+        Ok(vgm_file)
+    }
+    
+    /// Parse VGM file from bytes with validation
+    pub fn from_bytes_validated(data: &mut Bytes, config: ValidationConfig) -> VgmResult<Self> {
+        let original_len = data.len();
+        let vgm_file = Self::from_bytes(data)?;
+        
+        // Perform validation
+        let validator = VgmValidator::new(config);
+        validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, original_len)?;
+        
+        Ok(vgm_file)
+    }
+    
+    /// Validate this VGM file with the given configuration
+    pub fn validate_with_config(&self, config: ValidationConfig, file_size: usize) -> VgmResult<()> {
+        let validator = VgmValidator::new(config);
+        validator.validate_vgm_file(&self.header, &self.commands, &self.metadata, file_size)
+    }
+    
+    /// Validate this VGM file with default configuration
+    pub fn validate(&self, file_size: usize) -> VgmResult<()> {
+        self.validate_with_config(ValidationConfig::default(), file_size)
     }
 
     pub fn has_data_block(&self) -> bool {
@@ -70,7 +116,14 @@ impl VgmParser for VgmFile {
     fn from_bytes(data: &mut Bytes) -> VgmResult<Self> {
         let len_data = data.len();
         let header_data = HeaderData::from_bytes(data)?;
-        let vgm_start_pos = header_data.vgm_data_offset as usize + 0x34;
+        // Security: Prevent integer overflow in offset calculation
+        let vgm_start_pos = header_data.vgm_data_offset
+            .checked_add(0x34)
+            .and_then(|v| usize::try_from(v).ok())
+            .ok_or(VgmError::IntegerOverflow {
+                operation: "VGM data offset calculation".to_string(),
+                details: format!("offset {} + 0x34", header_data.vgm_data_offset),
+            })?;
 
         while len_data - data.len() < vgm_start_pos {
             data.get_u8();
@@ -94,6 +147,9 @@ impl VgmWriter for VgmFile {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod validation_integration_test;
 
 #[cfg(test)]
 mod tests {
