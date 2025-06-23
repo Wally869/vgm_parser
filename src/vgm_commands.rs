@@ -2,6 +2,7 @@
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
+use crate::errors::{VgmError, VgmResult};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub enum Commands {
@@ -250,16 +251,23 @@ pub fn parse_commands(data: &mut Bytes) -> Vec<Commands> {
     let _remaining_at_start = data.len();
     let mut counter = 0;
     loop {
-        let curr_command = Commands::from_bytes(data);
-        match curr_command {
-            Commands::EndOfSoundData => {
-                commands.push(curr_command);
-                break;
+        match Commands::from_bytes(data) {
+            Ok(curr_command) => {
+                match curr_command {
+                    Commands::EndOfSoundData => {
+                        commands.push(curr_command);
+                        break;
+                    },
+                    _ => commands.push(curr_command),
+                }
             },
-            _ => commands.push(curr_command),
+            Err(_e) => {
+                // For now, just stop parsing on error
+                // In the future, we might want to propagate this error up
+                println!("Warning: Failed to parse command, stopping parsing");
+                break;
+            }
         }
-        //println!("curr pos: {:8X?}", remaining_at_start - data.len());
-        //break;
         counter += 1;
     }
     println!("counter: {}", counter);
@@ -290,15 +298,17 @@ pub fn parse_commands_safe(data: &mut Bytes) -> Vec<Commands> {
     commands
 }
 
-pub fn write_commands(buffer: &mut BytesMut, commands: &Vec<Commands>) {
+pub fn write_commands(buffer: &mut BytesMut, commands: &Vec<Commands>) -> VgmResult<()> {
     for cmd in commands {
-        buffer.put(&cmd.clone().to_bytes()[..]);
+        let cmd_bytes = cmd.clone().to_bytes()?;
+        buffer.put(&cmd_bytes[..]);
     }
+    Ok(())
 }
 
 impl Commands {
-    pub fn to_bytes(self) -> Vec<u8> {
-        match self {
+    pub fn to_bytes(self) -> VgmResult<Vec<u8>> {
+        let bytes = match self {
             Commands::AY8910StereoMask { value } => {
                 vec![0x31, value]
             },
@@ -378,7 +388,11 @@ impl Commands {
                 out_data
             },
             Commands::PCMRAMWrite { offset: _, data: _ } => {
-                panic!("not implemented")
+                return Err(VgmError::FeatureNotSupported {
+                    feature: "PCM RAM Write command serialization".to_string(),
+                    version: 0, // Unknown version requirement
+                    min_version: 0, // Would need to research the actual VGM version requirement
+                });
             },
 
             Commands::WaitNSamplesPlus1 { n } => vec![0x70 + n],
@@ -389,7 +403,11 @@ impl Commands {
                 register: _,
                 value: _,
             } => {
-                panic!("not implemented")
+                return Err(VgmError::FeatureNotSupported {
+                    feature: "DAC Stream Control Write command serialization".to_string(),
+                    version: 0, // Unknown version requirement
+                    min_version: 0, // Would need to research the actual VGM version requirement
+                });
             },
 
             Commands::AY8910Write { register, value } => {
@@ -538,14 +556,16 @@ impl Commands {
                 rslt.extend(value.to_le_bytes());
                 rslt
             }, // _ => panic!("Not implemented"),
-        }
+        };
+        
+        Ok(bytes)
     }
 
-    pub fn from_bytes(bytes: &mut Bytes) -> Commands {
+    pub fn from_bytes(bytes: &mut Bytes) -> VgmResult<Commands> {
         let command_val = bytes.get_u8();
         
 
-        match command_val {
+        let command = match command_val {
             0x31 => {
                 // handle AY8910 stereo mask command
                 // `bytes.get(1)` gives you the `dd` value
@@ -916,10 +936,14 @@ impl Commands {
                 value: bytes.get_u16_le(),
             },
             _ => {
-                println!("UNK instruction: {:02X?}", command_val);
-                panic!("unk instruction")
+                return Err(VgmError::UnknownCommand { 
+                    opcode: command_val, 
+                    position: 0  // We'd need to track position properly in a real implementation
+                });
             },
-        }
+        };
+        
+        Ok(command)
     }
 
     pub fn from_bytes_safe(bytes: &mut Bytes) -> Result<Commands, u8> {

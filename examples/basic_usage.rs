@@ -23,7 +23,16 @@ fn main() {
     println!("Parsing VGM file: {}", input_file);
 
     // Parse the VGM file
-    let vgm_file = VgmFile::from_path(&vgm_path);
+    let vgm_file = match VgmFile::from_path(&vgm_path) {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Error parsing VGM file: {}", e);
+            eprintln!("Error code: {}", e.code());
+            eprintln!("Error category: {}", e.category());
+            eprintln!("Suggested action: {}", e.suggested_action());
+            return;
+        }
+    };
 
     println!("Parsed successfully!");
     println!("VGM version: {}", vgm_file.header.version);
@@ -46,7 +55,15 @@ fn main() {
 
     // 2. Test round-trip binary serialization
     let mut out_buffer = BytesMut::new();
-    vgm_file.to_bytes(&mut out_buffer);
+    match vgm_file.to_bytes(&mut out_buffer) {
+        Ok(()) => {},
+        Err(e) => {
+            eprintln!("Error serializing VGM file: {}", e);
+            eprintln!("Error code: {}", e.code());
+            eprintln!("Suggested action: {}", e.suggested_action());
+            return;
+        }
+    };
 
     let binary_path = format!("./generated/gen_{}.bin", input_file);
     if let Err(e) = fs::write(&binary_path, &out_buffer) {

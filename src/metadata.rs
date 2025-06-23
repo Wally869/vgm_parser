@@ -2,6 +2,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    errors::{VgmError, VgmResult},
     traits::{VgmParser, VgmWriter},
     utils::write_string_as_u16_bytes,
 };
@@ -31,13 +32,16 @@ pub struct VgmMetadata {
 }
 
 impl VgmParser for VgmMetadata {
-    fn from_bytes(data: &mut Bytes) -> Self {
+    fn from_bytes(data: &mut Bytes) -> VgmResult<Self> {
         // validate version
         let version = data.slice(4..8); //.get_u32_le();
         let ver: &[u8] = &[0x0, 0x1, 0x0, 0x0];
         if version != ver {
-            //return Err(LibError::UnsupportedGd3Version);
-            panic!("Unsupported Gd3 Version");
+            let actual_version = u32::from_le_bytes([version[0], version[1], version[2], version[3]]);
+            return Err(VgmError::UnsupportedGd3Version {
+                version: actual_version,
+                supported_versions: vec![0x00000100], // Version 1.0
+            });
         }
 
         let _data_length = data.slice(8..12).get_u32_le();
@@ -62,32 +66,49 @@ impl VgmParser for VgmMetadata {
             temp.push(elem);
         }
 
+        // Helper function to safely convert UTF-16 with proper error context
+        let safe_utf16_convert = |data: &[u16], field_name: &str| -> VgmResult<String> {
+            String::from_utf16(data).map_err(|e| VgmError::InvalidUtf16Encoding {
+                field: field_name.to_string(),
+                details: e.to_string(),
+            })
+        };
+
+        // Ensure we have enough fields
+        if acc.len() < 11 {
+            return Err(VgmError::InvalidDataLength {
+                field: "GD3 metadata fields".to_string(),
+                expected: 11,
+                actual: acc.len(),
+            });
+        }
+
         let eng_data = Gd3LocaleData {
-            track: String::from_utf16(&acc[0]).unwrap(),
-            game: String::from_utf16(&acc[2]).unwrap(),
-            system: String::from_utf16(&acc[4]).unwrap(),
-            author: String::from_utf16(&acc[6]).unwrap(),
+            track: safe_utf16_convert(&acc[0], "English track")?,
+            game: safe_utf16_convert(&acc[2], "English game")?,
+            system: safe_utf16_convert(&acc[4], "English system")?,
+            author: safe_utf16_convert(&acc[6], "English author")?,
         };
 
         let jap_data = Gd3LocaleData {
-            track: String::from_utf16(&acc[1]).unwrap(),
-            game: String::from_utf16(&acc[3]).unwrap(),
-            system: String::from_utf16(&acc[5]).unwrap(),
-            author: String::from_utf16(&acc[7]).unwrap(),
+            track: safe_utf16_convert(&acc[1], "Japanese track")?,
+            game: safe_utf16_convert(&acc[3], "Japanese game")?,
+            system: safe_utf16_convert(&acc[5], "Japanese system")?,
+            author: safe_utf16_convert(&acc[7], "Japanese author")?,
         };
 
-        VgmMetadata {
+        Ok(VgmMetadata {
             english_data: eng_data,
             japanese_data: jap_data,
-            date_release: String::from_utf16(&acc[8]).unwrap(),
-            name_vgm_creator: String::from_utf16(&acc[9]).unwrap(),
-            notes: String::from_utf16(&acc[10]).unwrap(),
-        }
+            date_release: safe_utf16_convert(&acc[8], "Release date")?,
+            name_vgm_creator: safe_utf16_convert(&acc[9], "VGM creator name")?,
+            notes: safe_utf16_convert(&acc[10], "Notes")?,
+        })
     }
 }
 
 impl VgmWriter for VgmMetadata {
-    fn to_bytes(&self, buffer: &mut BytesMut) {
+    fn to_bytes(&self, buffer: &mut BytesMut) -> VgmResult<()> {
         // write magic and version
         buffer.put(&b"Gd3 "[..]);
         buffer.put(&[0x00, 0x01, 0x00, 0x00][..]);
@@ -136,5 +157,7 @@ impl VgmWriter for VgmMetadata {
         let data_length = (buffer.len() - (index_length + 4)) as u32;
         let loc = &mut buffer[index_length..(index_length + 4)];
         loc.copy_from_slice(&data_length.to_le_bytes()[..]);
+        
+        Ok(())
     }
 }
