@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 bytes = "1.5.0"
+flate2 = "1.0.34"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"
 thiserror = "1.0.38"

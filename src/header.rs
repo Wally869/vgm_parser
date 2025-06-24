@@ -1544,6 +1544,65 @@ impl VgmWriter for HeaderData {
     }
 }
 
+// Validation implementation for HeaderData
+use crate::validation::{VgmValidate, ValidationContext, ChipValidator, OffsetValidator};
+
+impl VgmValidate for HeaderData {
+    fn validate(&self, context: &ValidationContext) -> crate::errors::VgmResult<()> {
+        // Validate chip clocks
+        ChipValidator::validate_chip_clocks(self)?;
+        
+        // Validate chip volumes
+        ChipValidator::validate_chip_volumes(self)?;
+        
+        // Validate offsets against file size
+        if self.gd3_offset > 0 {
+            OffsetValidator::validate_offset(self.gd3_offset + 0x14, context.file_size, "gd3_offset")?;
+        }
+        
+        if self.vgm_data_offset > 0 {
+            OffsetValidator::validate_offset(self.vgm_data_offset + 0x34, context.file_size, "vgm_data_offset")?;
+        }
+        
+        if self.loop_offset > 0 {
+            OffsetValidator::validate_offset(self.loop_offset + 0x1C, context.file_size, "loop_offset")?;
+        }
+        
+        if self.extra_header_offset > 0 {
+            OffsetValidator::validate_offset(self.extra_header_offset + 0xBC, context.file_size, "extra_header_offset")?;
+        }
+        
+        // Validate sample counts are reasonable
+        if self.total_nb_samples > 0 && self.rate > 0 {
+            let duration_seconds = self.total_nb_samples as f64 / self.rate as f64;
+            if duration_seconds > 3600.0 { // More than 1 hour
+                return Err(crate::errors::VgmError::ValidationFailed {
+                    field: "total_nb_samples".to_string(),
+                    reason: format!("Duration {:.1} seconds exceeds reasonable limit", duration_seconds),
+                });
+            }
+        }
+        
+        // Validate loop data consistency
+        if self.loop_offset > 0 && self.loop_nb_samples == 0 {
+            return Err(crate::errors::VgmError::InconsistentData {
+                context: "Loop configuration".to_string(),
+                reason: "Loop offset specified but loop sample count is zero".to_string(),
+            });
+        }
+        
+        // Validate rate is reasonable
+        if self.rate > 0 && (self.rate < 8000 || self.rate > 192000) {
+            return Err(crate::errors::VgmError::ValidationFailed {
+                field: "rate".to_string(),
+                reason: format!("Sample rate {} Hz outside valid range 8000-192000 Hz", self.rate),
+            });
+        }
+        
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -1638,64 +1697,5 @@ mod tests {
                 println!("Warning: Could not serialize header to JSON: {}", e);
             }
         }
-    }
-}
-
-// Validation implementation for HeaderData
-use crate::validation::{VgmValidate, ValidationContext, ChipValidator, OffsetValidator};
-
-impl VgmValidate for HeaderData {
-    fn validate(&self, context: &ValidationContext) -> crate::errors::VgmResult<()> {
-        // Validate chip clocks
-        ChipValidator::validate_chip_clocks(self)?;
-        
-        // Validate chip volumes
-        ChipValidator::validate_chip_volumes(self)?;
-        
-        // Validate offsets against file size
-        if self.gd3_offset > 0 {
-            OffsetValidator::validate_offset(self.gd3_offset + 0x14, context.file_size, "gd3_offset")?;
-        }
-        
-        if self.vgm_data_offset > 0 {
-            OffsetValidator::validate_offset(self.vgm_data_offset + 0x34, context.file_size, "vgm_data_offset")?;
-        }
-        
-        if self.loop_offset > 0 {
-            OffsetValidator::validate_offset(self.loop_offset + 0x1C, context.file_size, "loop_offset")?;
-        }
-        
-        if self.extra_header_offset > 0 {
-            OffsetValidator::validate_offset(self.extra_header_offset + 0xBC, context.file_size, "extra_header_offset")?;
-        }
-        
-        // Validate sample counts are reasonable
-        if self.total_nb_samples > 0 && self.rate > 0 {
-            let duration_seconds = self.total_nb_samples as f64 / self.rate as f64;
-            if duration_seconds > 3600.0 { // More than 1 hour
-                return Err(crate::errors::VgmError::ValidationFailed {
-                    field: "total_nb_samples".to_string(),
-                    reason: format!("Duration {:.1} seconds exceeds reasonable limit", duration_seconds),
-                });
-            }
-        }
-        
-        // Validate loop data consistency
-        if self.loop_offset > 0 && self.loop_nb_samples == 0 {
-            return Err(crate::errors::VgmError::InconsistentData {
-                context: "Loop configuration".to_string(),
-                reason: "Loop offset specified but loop sample count is zero".to_string(),
-            });
-        }
-        
-        // Validate rate is reasonable
-        if self.rate > 0 && (self.rate < 8000 || self.rate > 192000) {
-            return Err(crate::errors::VgmError::ValidationFailed {
-                field: "rate".to_string(),
-                reason: format!("Sample rate {} Hz outside valid range 8000-192000 Hz", self.rate),
-            });
-        }
-        
-        Ok(())
     }
 }

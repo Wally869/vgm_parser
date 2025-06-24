@@ -237,7 +237,7 @@ impl DataBlockContent {
                     }
                 };
                 
-                let remaining_size = data_size - 9; // 1 + 4 + 4 bytes consumed
+                let remaining_size = data_size.saturating_sub(9); // 1 + 4 + 4 bytes consumed
                 let data: Vec<u8> = (0..remaining_size as usize).map(|_| bytes.get_u8()).collect();
                 
                 Ok(DataBlockContent::CompressedStream {
@@ -312,6 +312,243 @@ impl DataBlockContent {
                 })
             },
         }
+    }
+    
+    /// Get decompressed data for compressed streams
+    pub fn decompress_data(&self, decompression_table: Option<&[u8]>) -> VgmResult<Vec<u8>> {
+        match self {
+            DataBlockContent::UncompressedStream { data, .. } => Ok(data.clone()),
+            DataBlockContent::CompressedStream { compression, uncompressed_size, data, .. } => {
+                match compression {
+                    CompressionType::BitPacking { bits_decompressed, bits_compressed, sub_type, add_value } => {
+                        decompress_bit_packing(
+                            data,
+                            *bits_compressed,
+                            *bits_decompressed,
+                            *sub_type,
+                            *add_value,
+                            *uncompressed_size,
+                            decompression_table
+                        )
+                    },
+                    CompressionType::DPCM { bits_decompressed, bits_compressed, start_value } => {
+                        let table = decompression_table.ok_or_else(|| VgmError::InvalidDataFormat {
+                            field: "decompression_table".to_string(),
+                            details: "DPCM decompression requires a decompression table".to_string(),
+                        })?;
+                        decompress_dpcm(
+                            data,
+                            *bits_compressed,
+                            *bits_decompressed,
+                            *start_value,
+                            *uncompressed_size,
+                            table
+                        )
+                    },
+                }
+            },
+            _ => Err(VgmError::InvalidDataFormat {
+                field: "data_block".to_string(),
+                details: "Cannot decompress non-stream data blocks".to_string(),
+            }),
+        }
+    }
+}
+
+/// Decompress bit-packed data according to VGM specification
+fn decompress_bit_packing(
+    compressed_data: &[u8],
+    bits_compressed: u8,
+    bits_decompressed: u8,
+    sub_type: u8,
+    add_value: u16,
+    uncompressed_size: u32,
+    decompression_table: Option<&[u8]>,
+) -> VgmResult<Vec<u8>> {
+    let mut result = Vec::with_capacity(uncompressed_size as usize);
+    let mut bit_reader = BitReader::new(compressed_data);
+    
+    // Calculate bytes per decompressed value
+    let bytes_per_value = (bits_decompressed as usize).div_ceil(8);
+    
+    while result.len() < uncompressed_size as usize {
+        // Read compressed bits
+        let compressed_value = bit_reader.read_bits(bits_compressed)?;
+        
+        // Apply decompression based on sub-type
+        let decompressed_value = match sub_type {
+            0x00 => {
+                // Copy: high bits aren't used
+                compressed_value as u32
+            },
+            0x01 => {
+                // Shift left: low bits aren't used
+                (compressed_value as u32) << (bits_decompressed - bits_compressed)
+            },
+            0x02 => {
+                // Use table
+                let table = decompression_table.ok_or_else(|| VgmError::InvalidDataFormat {
+                    field: "decompression_table".to_string(),
+                    details: "Bit packing sub-type 0x02 requires a decompression table".to_string(),
+                })?;
+                
+                let index = compressed_value as usize * bytes_per_value;
+                if index + bytes_per_value > table.len() {
+                    return Err(VgmError::InvalidDataFormat {
+                        field: "table_index".to_string(),
+                        details: format!("Table index {} out of bounds", index),
+                    });
+                }
+                
+                // Read value from table based on bytes_per_value
+                let mut table_value = 0u32;
+                for i in 0..bytes_per_value {
+                    table_value |= (table[index + i] as u32) << (i * 8);
+                }
+                table_value
+            },
+            _ => {
+                return Err(VgmError::InvalidDataFormat {
+                    field: "bit_packing_sub_type".to_string(),
+                    details: format!("Unknown bit packing sub-type: 0x{:02X}", sub_type),
+                });
+            }
+        };
+        
+        // Add the constant value (except for table lookup)
+        let final_value = if sub_type != 0x02 {
+            decompressed_value.wrapping_add(add_value as u32)
+        } else {
+            decompressed_value
+        };
+        
+        // Write the decompressed value in little-endian format
+        for i in 0..bytes_per_value.min(4) {
+            if result.len() < uncompressed_size as usize {
+                result.push((final_value >> (i * 8)) as u8);
+            }
+        }
+    }
+    
+    // Ensure we have exactly the expected size
+    result.truncate(uncompressed_size as usize);
+    Ok(result)
+}
+
+/// Decompress DPCM data according to VGM specification
+fn decompress_dpcm(
+    compressed_data: &[u8],
+    bits_compressed: u8,
+    bits_decompressed: u8,
+    start_value: u16,
+    uncompressed_size: u32,
+    decompression_table: &[u8],
+) -> VgmResult<Vec<u8>> {
+    let mut result = Vec::with_capacity(uncompressed_size as usize);
+    let mut bit_reader = BitReader::new(compressed_data);
+    let mut state = start_value as i32;
+    
+    // Calculate bytes per decompressed value
+    let bytes_per_value = (bits_decompressed as usize).div_ceil(8);
+    
+    while result.len() < uncompressed_size as usize {
+        // Read compressed bits as index
+        let index = bit_reader.read_bits(bits_compressed)? as usize;
+        
+        // Look up delta value from table
+        let table_index = index * bytes_per_value;
+        if table_index + bytes_per_value > decompression_table.len() {
+            return Err(VgmError::InvalidDataFormat {
+                field: "dpcm_table_index".to_string(),
+                details: format!("DPCM table index {} out of bounds", table_index),
+            });
+        }
+        
+        // Read delta value from table (signed)
+        let mut delta = 0i32;
+        for i in 0..bytes_per_value.min(4) {
+            delta |= (decompression_table[table_index + i] as i32) << (i * 8);
+        }
+        
+        // Sign extend if necessary
+        if bytes_per_value < 4 && (delta & (1 << (bytes_per_value * 8 - 1))) != 0 {
+            delta |= !0 << (bytes_per_value * 8);
+        }
+        
+        // Update state with delta
+        state = state.wrapping_add(delta);
+        
+        // Write the result value in little-endian format
+        for i in 0..bytes_per_value.min(4) {
+            if result.len() < uncompressed_size as usize {
+                result.push((state >> (i * 8)) as u8);
+            }
+        }
+    }
+    
+    // Ensure we have exactly the expected size
+    result.truncate(uncompressed_size as usize);
+    Ok(result)
+}
+
+/// Helper struct for reading bits from a byte stream
+struct BitReader<'a> {
+    data: &'a [u8],
+    byte_pos: usize,
+    bit_pos: u8,
+}
+
+impl<'a> BitReader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        BitReader {
+            data,
+            byte_pos: 0,
+            bit_pos: 0,
+        }
+    }
+    
+    fn read_bits(&mut self, num_bits: u8) -> VgmResult<u16> {
+        if num_bits > 16 {
+            return Err(VgmError::InvalidDataFormat {
+                field: "bit_count".to_string(),
+                details: format!("Cannot read more than 16 bits at once, requested: {}", num_bits),
+            });
+        }
+        
+        let mut result = 0u16;
+        let mut bits_read = 0;
+        
+        while bits_read < num_bits {
+            if self.byte_pos >= self.data.len() {
+                return Err(VgmError::BufferUnderflow {
+                    offset: self.byte_pos,
+                    needed: 1,
+                    available: 0,
+                });
+            }
+            
+            let current_byte = self.data[self.byte_pos];
+            let bits_available = 8 - self.bit_pos;
+            let bits_to_read = (num_bits - bits_read).min(bits_available);
+            
+            // Extract bits from current byte (MSB first as per VGM spec)
+            let mask = ((1u16 << bits_to_read) - 1) as u8;
+            let shift = bits_available - bits_to_read;
+            let bits = (current_byte >> shift) & mask;
+            
+            // Add to result
+            result = (result << bits_to_read) | (bits as u16);
+            bits_read += bits_to_read;
+            
+            // Update position
+            self.bit_pos += bits_to_read;
+            if self.bit_pos >= 8 {
+                self.bit_pos = 0;
+                self.byte_pos += 1;
+            }
+        }
+        
+        Ok(result)
     }
 }
 
@@ -2415,5 +2652,220 @@ impl Commands {
         };
 
         Ok(command)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::BytesMut;
+
+    #[test]
+    fn test_bit_packing_copy_mode() {
+        // Test bit packing with copy mode (sub_type = 0x00)
+        let compressed_data = vec![0b10101010, 0b11001100]; // 8-bit values
+        let result = decompress_bit_packing(
+            &compressed_data,
+            8,   // bits_compressed
+            16,  // bits_decompressed
+            0x00, // sub_type: copy
+            100, // add_value
+            4,   // uncompressed_size (2 16-bit values = 4 bytes)
+            None,
+        ).unwrap();
+
+        // First value: 0b10101010 + 100 = 170 + 100 = 270 = 0x010E (little-endian: 0x0E, 0x01)
+        // Second value: 0b11001100 + 100 = 204 + 100 = 304 = 0x0130 (little-endian: 0x30, 0x01)
+        assert_eq!(result, vec![0x0E, 0x01, 0x30, 0x01]);
+    }
+
+    #[test]
+    fn test_bit_packing_shift_mode() {
+        // Test bit packing with shift left mode (sub_type = 0x01)
+        // Using 8-bit compressed data that contains a 4-bit value
+        let compressed_data = vec![0b11110000]; // MSB first: 0b1111 = 15
+        let result = decompress_bit_packing(
+            &compressed_data,
+            4,   // bits_compressed
+            8,   // bits_decompressed
+            0x01, // sub_type: shift left
+            10,  // add_value
+            1,   // uncompressed_size (1 byte)
+            None,
+        ).unwrap();
+
+        // BitReader reads MSB first, so from 0b11110000 with 4 bits we get 0b1111 = 15
+        // Value: 15 << (8-4) = 15 << 4 = 0b11110000 = 240
+        // Final: 240 + 10 = 250
+        assert_eq!(result, vec![250]);
+    }
+
+    #[test]
+    fn test_bit_packing_table_mode() {
+        // Test bit packing with table lookup mode (sub_type = 0x02)
+        let compressed_data = vec![0x00, 0x01]; // Two 8-bit indices
+        let table = vec![
+            0x34, 0x12, // Entry 0: 0x1234 (little-endian)
+            0x78, 0x56, // Entry 1: 0x5678 (little-endian)
+        ];
+        
+        let result = decompress_bit_packing(
+            &compressed_data,
+            8,   // bits_compressed
+            16,  // bits_decompressed
+            0x02, // sub_type: use table
+            0,   // add_value (ignored for table mode)
+            4,   // uncompressed_size (2 16-bit values = 4 bytes)
+            Some(&table),
+        ).unwrap();
+
+        assert_eq!(result, vec![0x34, 0x12, 0x78, 0x56]);
+    }
+
+    #[test]
+    fn test_dpcm_decompression() {
+        // Test DPCM decompression
+        let compressed_data = vec![0b00011011]; // Contains indices 0, 1, 2, 3 (2 bits each)
+        let table = vec![
+            0x00, 0x00, // Delta 0: 0
+            0x01, 0x00, // Delta 1: 1
+            0xFF, 0xFF, // Delta 2: -1 (two's complement)
+            0x02, 0x00, // Delta 3: 2
+        ];
+        
+        let result = decompress_dpcm(
+            &compressed_data,
+            2,   // bits_compressed
+            16,  // bits_decompressed
+            100, // start_value
+            8,   // uncompressed_size (4 16-bit values = 8 bytes)
+            &table,
+        ).unwrap();
+
+        // Starting value: 100
+        // After delta 0 (+0): 100 = 0x0064 (little-endian: 0x64, 0x00)
+        // After delta 1 (+1): 101 = 0x0065 (little-endian: 0x65, 0x00)
+        // After delta 2 (-1): 100 = 0x0064 (little-endian: 0x64, 0x00)
+        // After delta 3 (+2): 102 = 0x0066 (little-endian: 0x66, 0x00)
+        assert_eq!(result, vec![0x64, 0x00, 0x65, 0x00, 0x64, 0x00, 0x66, 0x00]);
+    }
+
+    #[test]
+    fn test_data_block_parsing_compressed() {
+        let mut bytes = BytesMut::new();
+        
+        // Compressed stream block type 0x40 (YM2612)
+        let block_type = 0x40;
+        let data_size = 15; // 9 bytes header + 6 bytes data
+        
+        // Compression header
+        bytes.put_u8(0x00); // Bit packing compression
+        bytes.put_u32_le(100); // Uncompressed size
+        bytes.put_u8(8); // bits_decompressed
+        bytes.put_u8(4); // bits_compressed
+        bytes.put_u8(0x00); // sub_type: copy
+        bytes.put_u16_le(10); // add_value
+        
+        // Compressed data
+        bytes.extend_from_slice(&[0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC]);
+        
+        let mut bytes = bytes.freeze();
+        let content = DataBlockContent::parse_from_bytes(block_type, data_size, &mut bytes).unwrap();
+        
+        match content {
+            DataBlockContent::CompressedStream { chip_type, compression, uncompressed_size, data } => {
+                assert_eq!(chip_type, StreamChipType::YM2612);
+                assert_eq!(uncompressed_size, 100);
+                assert_eq!(data.len(), 6);
+                
+                match compression {
+                    CompressionType::BitPacking { bits_decompressed, bits_compressed, sub_type, add_value } => {
+                        assert_eq!(bits_decompressed, 8);
+                        assert_eq!(bits_compressed, 4);
+                        assert_eq!(sub_type, 0x00);
+                        assert_eq!(add_value, 10);
+                    },
+                    _ => panic!("Expected BitPacking compression"),
+                }
+            },
+            _ => panic!("Expected CompressedStream"),
+        }
+    }
+
+    #[test]
+    fn test_data_block_decompression() {
+        // Create a compressed data block
+        let content = DataBlockContent::CompressedStream {
+            chip_type: StreamChipType::YM2612,
+            compression: CompressionType::BitPacking {
+                bits_decompressed: 8,
+                bits_compressed: 8,
+                sub_type: 0x00,
+                add_value: 0,
+            },
+            uncompressed_size: 4,
+            data: vec![0x10, 0x20, 0x30, 0x40],
+        };
+        
+        let decompressed = content.decompress_data(None).unwrap();
+        assert_eq!(decompressed, vec![0x10, 0x20, 0x30, 0x40]);
+    }
+
+    #[test]
+    fn test_bit_reader() {
+        let data = vec![0b10110100, 0b11001010];
+        let mut reader = BitReader::new(&data);
+        
+        // Read 3 bits: should get 0b101
+        assert_eq!(reader.read_bits(3).unwrap(), 0b101);
+        
+        // Read 5 bits: should get 0b10100
+        assert_eq!(reader.read_bits(5).unwrap(), 0b10100);
+        
+        // Read 4 bits: should get 0b1100
+        assert_eq!(reader.read_bits(4).unwrap(), 0b1100);
+        
+        // Read 4 bits: should get 0b1010
+        assert_eq!(reader.read_bits(4).unwrap(), 0b1010);
+    }
+
+    #[test]
+    fn test_decompression_table_block() {
+        let mut bytes = BytesMut::new();
+        
+        // Decompression table block type 0x7F
+        let block_type = 0x7F;
+        let data_size = 10; // 6 bytes header + 4 bytes table data
+        
+        bytes.put_u8(0x00); // compression_type
+        bytes.put_u8(0x00); // sub_type
+        bytes.put_u8(16); // bits_decompressed
+        bytes.put_u8(8); // bits_compressed
+        bytes.put_u16_le(2); // value_count
+        
+        // Table data (2 16-bit values)
+        bytes.extend_from_slice(&[0x34, 0x12, 0x78, 0x56]);
+        
+        let mut bytes = bytes.freeze();
+        let content = DataBlockContent::parse_from_bytes(block_type, data_size, &mut bytes).unwrap();
+        
+        match content {
+            DataBlockContent::DecompressionTable { 
+                compression_type, 
+                sub_type, 
+                bits_decompressed, 
+                bits_compressed, 
+                value_count, 
+                table_data 
+            } => {
+                assert_eq!(compression_type, 0x00);
+                assert_eq!(sub_type, 0x00);
+                assert_eq!(bits_decompressed, 16);
+                assert_eq!(bits_compressed, 8);
+                assert_eq!(value_count, 2);
+                assert_eq!(table_data, vec![0x34, 0x12, 0x78, 0x56]);
+            },
+            _ => panic!("Expected DecompressionTable"),
+        }
     }
 }

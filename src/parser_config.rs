@@ -56,7 +56,7 @@ impl ParserConfig {
     pub fn security_focused() -> Self {
         Self {
             max_commands: 100_000,                     // Stricter command limit
-            max_data_block_size: 1 * 1024 * 1024,     // 1MB per DataBlock
+            max_data_block_size: 1024 * 1024,     // 1MB per DataBlock
             max_total_data_block_memory: 8 * 1024 * 1024, // 8MB total DataBlocks
             max_metadata_size: 64 * 1024,             // 64KB metadata
             max_chip_clock_entries: 16,               // Stricter chip limits
