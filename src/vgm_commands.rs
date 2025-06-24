@@ -4,6 +4,317 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use crate::errors::{VgmError, VgmResult};
 
+const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+
+/// Compression types for compressed data blocks
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum CompressionType {
+    BitPacking {
+        bits_decompressed: u8,
+        bits_compressed: u8,
+        sub_type: u8,  // 00=copy, 01=shift left, 02=use table
+        add_value: u16,
+    },
+    DPCM {
+        bits_decompressed: u8,
+        bits_compressed: u8,
+        start_value: u16,
+    },
+}
+
+/// Data block content based on block type
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DataBlockContent {
+    // Uncompressed streaming data (0x00-0x3F)
+    UncompressedStream {
+        chip_type: StreamChipType,
+        data: Vec<u8>,
+    },
+    
+    // Compressed streaming data (0x40-0x7E) 
+    CompressedStream {
+        chip_type: StreamChipType,
+        compression: CompressionType,
+        uncompressed_size: u32,
+        data: Vec<u8>,
+    },
+    
+    // Decompression table (0x7F)
+    DecompressionTable {
+        compression_type: u8,
+        sub_type: u8,
+        bits_decompressed: u8,
+        bits_compressed: u8,
+        value_count: u16,
+        table_data: Vec<u8>,
+    },
+    
+    // ROM/RAM dumps (0x80-0xBF)
+    ROMDump {
+        chip_type: ROMDumpChipType,
+        total_size: u32,
+        start_address: u32,
+        data: Vec<u8>,
+    },
+    
+    // RAM writes ≤64KB (0xC0-0xDF)
+    RAMWriteSmall {
+        chip_type: RAMWriteChipType,
+        start_address: u16,
+        data: Vec<u8>,
+    },
+    
+    // RAM writes >64KB (0xE0-0xFF)
+    RAMWriteLarge {
+        chip_type: RAMWriteChipType,
+        start_address: u32,
+        data: Vec<u8>,
+    },
+    
+    // Unknown/Reserved block type
+    Unknown {
+        data: Vec<u8>,
+    },
+}
+
+/// Chip types for streaming data blocks (uncompressed/compressed PCM streams)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StreamChipType {
+    YM2612,          // 0x00/0x40 - Yamaha YM2612 (SegaPCM streaming)
+    RF5C68,          // 0x01/0x41 - Ricoh RF5C68 PCM
+    RF5C164,         // 0x02/0x42 - Ricoh RF5C164 PCM
+    PWM,             // 0x03/0x43 - Sega PWM
+    OKIM6258,        // 0x04/0x44 - OKI MSM6258 ADPCM
+    HuC6280,         // 0x05/0x45 - Hudson HuC6280 PCM
+    SCSP,            // 0x06/0x46 - Yamaha SCSP PCM
+    NESAPU,          // 0x07/0x47 - NES APU DPCM
+    Mikey,           // 0x08/0x48 - Atari Lynx Mikey PCM
+    Reserved(u8),    // 0x09-0x3F - Reserved for future use
+}
+
+/// Chip types for ROM/RAM dump blocks
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ROMDumpChipType {
+    SegaPCM,         // 0x80 - Sega PCM ROM data
+    YM2608DeltaT,    // 0x81 - Yamaha YM2608 DELTA-T ROM
+    YM2610ADPCM,     // 0x82 - Yamaha YM2610 ADPCM ROM
+    YM2610DeltaT,    // 0x83 - Yamaha YM2610 DELTA-T ROM
+    YMF278B,         // 0x84 - Yamaha YMF278B ROM
+    YMF271,          // 0x85 - Yamaha YMF271 ROM
+    YMZ280B,         // 0x86 - Yamaha YMZ280B ROM
+    YMF278BRAM,      // 0x87 - Yamaha YMF278B RAM data
+    Y8950DeltaT,     // 0x88 - Yamaha Y8950 DELTA-T ROM
+    MultiPCM,        // 0x89 - Sega MultiPCM ROM
+    UPD7759,         // 0x8A - NEC uPD7759 ROM
+    OKIM6295,        // 0x8B - OKI MSM6295 ROM
+    K054539,         // 0x8C - Konami K054539 ROM
+    C140,            // 0x8D - Namco C140 ROM
+    K053260,         // 0x8E - Konami K053260 ROM
+    QSound,          // 0x8F - Capcom Q-Sound ROM
+    ES5505_ES5506,   // 0x90 - Ensoniq ES5505/ES5506 ROM
+    X1010,           // 0x91 - Seta X1-010 ROM
+    C352,            // 0x92 - Namco C352 ROM
+    GA20,            // 0x93 - Irem GA20 ROM
+    Reserved(u8),    // 0x94-0xBF - Reserved for future use
+}
+
+/// Chip types for RAM write blocks
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RAMWriteChipType {
+    RF5C68,          // 0xC0/0xE0 - Ricoh RF5C68 RAM
+    RF5C164,         // 0xC1 - Ricoh RF5C164 RAM
+    NESAPU,          // 0xC2 - NES APU RAM
+    SCSP,            // 0xE0 - Yamaha SCSP RAM (>64KB)
+    ES5503,          // 0xE1 - Ensoniq ES5503 RAM (>64KB)
+    Reserved(u8),    // Other values - Reserved for future use
+}
+
+impl StreamChipType {
+    pub fn from_block_type(block_type: u8) -> Self {
+        match block_type & 0x3F {  // Remove compression bit
+            0x00 => StreamChipType::YM2612,
+            0x01 => StreamChipType::RF5C68,
+            0x02 => StreamChipType::RF5C164,
+            0x03 => StreamChipType::PWM,
+            0x04 => StreamChipType::OKIM6258,
+            0x05 => StreamChipType::HuC6280,
+            0x06 => StreamChipType::SCSP,
+            0x07 => StreamChipType::NESAPU,
+            0x08 => StreamChipType::Mikey,
+            other => StreamChipType::Reserved(other),
+        }
+    }
+}
+
+impl ROMDumpChipType {
+    pub fn from_block_type(block_type: u8) -> Self {
+        match block_type {
+            0x80 => ROMDumpChipType::SegaPCM,
+            0x81 => ROMDumpChipType::YM2608DeltaT,
+            0x82 => ROMDumpChipType::YM2610ADPCM,
+            0x83 => ROMDumpChipType::YM2610DeltaT,
+            0x84 => ROMDumpChipType::YMF278B,
+            0x85 => ROMDumpChipType::YMF271,
+            0x86 => ROMDumpChipType::YMZ280B,
+            0x87 => ROMDumpChipType::YMF278BRAM,
+            0x88 => ROMDumpChipType::Y8950DeltaT,
+            0x89 => ROMDumpChipType::MultiPCM,
+            0x8A => ROMDumpChipType::UPD7759,
+            0x8B => ROMDumpChipType::OKIM6295,
+            0x8C => ROMDumpChipType::K054539,
+            0x8D => ROMDumpChipType::C140,
+            0x8E => ROMDumpChipType::K053260,
+            0x8F => ROMDumpChipType::QSound,
+            0x90 => ROMDumpChipType::ES5505_ES5506,
+            0x91 => ROMDumpChipType::X1010,
+            0x92 => ROMDumpChipType::C352,
+            0x93 => ROMDumpChipType::GA20,
+            other => ROMDumpChipType::Reserved(other),
+        }
+    }
+}
+
+impl RAMWriteChipType {
+    pub fn from_block_type(block_type: u8) -> Self {
+        match block_type {
+            0xC0 => RAMWriteChipType::RF5C68,
+            0xC1 => RAMWriteChipType::RF5C164,
+            0xC2 => RAMWriteChipType::NESAPU,
+            0xE0 => RAMWriteChipType::SCSP,
+            0xE1 => RAMWriteChipType::ES5503,
+            other => RAMWriteChipType::Reserved(other),
+        }
+    }
+}
+
+impl DataBlockContent {
+    pub fn parse_from_bytes(block_type: u8, data_size: u32, bytes: &mut Bytes) -> VgmResult<Self> {
+        match block_type {
+            // Uncompressed streaming data (0x00-0x3F)
+            0x00..=0x3F => {
+                let chip_type = StreamChipType::from_block_type(block_type);
+                let data: Vec<u8> = (0..data_size as usize).map(|_| bytes.get_u8()).collect();
+                Ok(DataBlockContent::UncompressedStream { chip_type, data })
+            },
+            
+            // Compressed streaming data (0x40-0x7E)
+            0x40..=0x7E => {
+                let chip_type = StreamChipType::from_block_type(block_type);
+                let compression_type = bytes.get_u8();
+                let uncompressed_size = bytes.get_u32_le();
+                
+                let compression = match compression_type {
+                    0x00 => {
+                        // Bit packing
+                        let bits_decompressed = bytes.get_u8();
+                        let bits_compressed = bytes.get_u8();
+                        let sub_type = bytes.get_u8();
+                        let add_value = bytes.get_u16_le();
+                        CompressionType::BitPacking {
+                            bits_decompressed,
+                            bits_compressed,
+                            sub_type,
+                            add_value,
+                        }
+                    },
+                    0x01 => {
+                        // DPCM
+                        let bits_decompressed = bytes.get_u8();
+                        let bits_compressed = bytes.get_u8();
+                        let _reserved = bytes.get_u8(); // Must be 00
+                        let start_value = bytes.get_u16_le();
+                        CompressionType::DPCM {
+                            bits_decompressed,
+                            bits_compressed,
+                            start_value,
+                        }
+                    },
+                    _ => {
+                        return Err(VgmError::InvalidDataFormat {
+                            field: "compression_type".to_string(),
+                            details: format!("Unknown compression type: 0x{:02X}", compression_type),
+                        });
+                    }
+                };
+                
+                let remaining_size = data_size - 9; // 1 + 4 + 4 bytes consumed
+                let data: Vec<u8> = (0..remaining_size as usize).map(|_| bytes.get_u8()).collect();
+                
+                Ok(DataBlockContent::CompressedStream {
+                    chip_type,
+                    compression,
+                    uncompressed_size,
+                    data,
+                })
+            },
+            
+            // Decompression table (0x7F)
+            0x7F => {
+                let compression_type = bytes.get_u8();
+                let sub_type = bytes.get_u8();
+                let bits_decompressed = bytes.get_u8();
+                let bits_compressed = bytes.get_u8();
+                let value_count = bytes.get_u16_le();
+                let table_size = data_size - 6; // 6 bytes consumed
+                let table_data: Vec<u8> = (0..table_size as usize).map(|_| bytes.get_u8()).collect();
+                
+                Ok(DataBlockContent::DecompressionTable {
+                    compression_type,
+                    sub_type,
+                    bits_decompressed,
+                    bits_compressed,
+                    value_count,
+                    table_data,
+                })
+            },
+            
+            // ROM/RAM dumps (0x80-0xBF)
+            0x80..=0xBF => {
+                let chip_type = ROMDumpChipType::from_block_type(block_type);
+                let total_size = bytes.get_u32_le();
+                let start_address = bytes.get_u32_le();
+                let data_size_remaining = data_size - 8; // 8 bytes consumed
+                let data: Vec<u8> = (0..data_size_remaining as usize).map(|_| bytes.get_u8()).collect();
+                
+                Ok(DataBlockContent::ROMDump {
+                    chip_type,
+                    total_size,
+                    start_address,
+                    data,
+                })
+            },
+            
+            // RAM writes ≤64KB (0xC0-0xDF)
+            0xC0..=0xDF => {
+                let chip_type = RAMWriteChipType::from_block_type(block_type);
+                let start_address = bytes.get_u16_le();
+                let data_size_remaining = data_size - 2; // 2 bytes consumed
+                let data: Vec<u8> = (0..data_size_remaining as usize).map(|_| bytes.get_u8()).collect();
+                
+                Ok(DataBlockContent::RAMWriteSmall {
+                    chip_type,
+                    start_address,
+                    data,
+                })
+            },
+            
+            // RAM writes >64KB (0xE0-0xFF)
+            0xE0..=0xFF => {
+                let chip_type = RAMWriteChipType::from_block_type(block_type);
+                let start_address = bytes.get_u32_le();
+                let data_size_remaining = data_size - 4; // 4 bytes consumed
+                let data: Vec<u8> = (0..data_size_remaining as usize).map(|_| bytes.get_u8()).collect();
+                
+                Ok(DataBlockContent::RAMWriteLarge {
+                    chip_type,
+                    start_address,
+                    data,
+                })
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Hash)]
 pub enum Commands {
     AY8910StereoMask {
@@ -82,12 +393,14 @@ pub enum Commands {
     Wait882Samples,
     EndOfSoundData,
     DataBlock {
-        data_type: u8,
-        data_size: u32,
-        data: Vec<u8>,
+        block_type: u8,
+        data: DataBlockContent,
     },
     PCMRAMWrite {
-        offset: u32,
+        chip_type: u8,
+        read_offset: u32,      // 24-bit in VGM spec
+        write_offset: u32,     // 24-bit in VGM spec
+        size: u32,             // 24-bit in VGM spec
         data: Vec<u8>,
     },
     WaitNSamplesPlus1 {
@@ -96,9 +409,36 @@ pub enum Commands {
     YM2612Port0Address2AWriteWait {
         n: u8,
     },
-    DACStreamControlWrite {
-        register: u8,
-        value: u8,
+    // DAC Stream Control Commands (0x90-0x95)
+    DACStreamSetupControl {
+        stream_id: u8,
+        chip_type: u8,
+        port: u8,
+        command: u8,
+    },
+    DACStreamSetData {
+        stream_id: u8,
+        data_bank_id: u8,
+        step_size: u8,
+        step_base: u8,
+    },
+    DACStreamSetFrequency {
+        stream_id: u8,
+        frequency: u32,
+    },
+    DACStreamStart {
+        stream_id: u8,
+        data_start_offset: u32,
+        length_mode: u8,
+        data_length: u32,
+    },
+    DACStreamStop {
+        stream_id: u8,
+    },
+    DACStreamStartFast {
+        stream_id: u8,
+        block_id: u16,
+        flags: u8,
     },
     AY8910Write {
         register: u8,
@@ -395,16 +735,81 @@ impl Commands {
             },
 
             Commands::DataBlock {
-                data_type,
-                data_size,
+                block_type,
                 data,
             } => {
-                let mut out_data: Vec<u8> = vec![data_type];
+                // The DataBlock command format: 0x67 0x66 tt ss ss ss ss (data)
+                let mut out_data: Vec<u8> = vec![0x67, 0x66, block_type];
+                
+                // Calculate the size based on the data content
+                let data_size = match &data {
+                    DataBlockContent::UncompressedStream { data, .. } => data.len() as u32,
+                    DataBlockContent::CompressedStream { data, .. } => data.len() as u32 + 9, // +9 for compression header
+                    DataBlockContent::DecompressionTable { table_data, .. } => table_data.len() as u32 + 6, // +6 for header
+                    DataBlockContent::ROMDump { data, .. } => data.len() as u32 + 8, // +8 for total_size and start_address
+                    DataBlockContent::RAMWriteSmall { data, .. } => data.len() as u32 + 2, // +2 for start_address
+                    DataBlockContent::RAMWriteLarge { data, .. } => data.len() as u32 + 4, // +4 for start_address
+                    DataBlockContent::Unknown { data } => data.len() as u32,
+                };
+                
                 out_data.extend(data_size.to_le_bytes());
-                out_data.extend(data);
+                
+                // Serialize the data content
+                match data {
+                    DataBlockContent::UncompressedStream { data, .. } => {
+                        out_data.extend(data);
+                    },
+                    DataBlockContent::CompressedStream { compression, uncompressed_size, data, .. } => {
+                        // Write compression header
+                        match compression {
+                            CompressionType::BitPacking { bits_decompressed, bits_compressed, sub_type, add_value } => {
+                                out_data.push(0x00); // Bit packing compression type
+                                out_data.extend(uncompressed_size.to_le_bytes());
+                                out_data.push(bits_decompressed);
+                                out_data.push(bits_compressed);
+                                out_data.push(sub_type);
+                                out_data.extend(add_value.to_le_bytes());
+                            },
+                            CompressionType::DPCM { bits_decompressed, bits_compressed, start_value } => {
+                                out_data.push(0x01); // DPCM compression type
+                                out_data.extend(uncompressed_size.to_le_bytes());
+                                out_data.push(bits_decompressed);
+                                out_data.push(bits_compressed);
+                                out_data.push(0x00); // Reserved byte
+                                out_data.extend(start_value.to_le_bytes());
+                            },
+                        }
+                        out_data.extend(data);
+                    },
+                    DataBlockContent::DecompressionTable { compression_type, sub_type, bits_decompressed, bits_compressed, value_count, table_data } => {
+                        out_data.push(compression_type);
+                        out_data.push(sub_type);
+                        out_data.push(bits_decompressed);
+                        out_data.push(bits_compressed);
+                        out_data.extend(value_count.to_le_bytes());
+                        out_data.extend(table_data);
+                    },
+                    DataBlockContent::ROMDump { total_size, start_address, data, .. } => {
+                        out_data.extend(total_size.to_le_bytes());
+                        out_data.extend(start_address.to_le_bytes());
+                        out_data.extend(data);
+                    },
+                    DataBlockContent::RAMWriteSmall { start_address, data, .. } => {
+                        out_data.extend(start_address.to_le_bytes());
+                        out_data.extend(data);
+                    },
+                    DataBlockContent::RAMWriteLarge { start_address, data, .. } => {
+                        out_data.extend(start_address.to_le_bytes());
+                        out_data.extend(data);
+                    },
+                    DataBlockContent::Unknown { data } => {
+                        out_data.extend(data);
+                    },
+                }
+                
                 out_data
             },
-            Commands::PCMRAMWrite { offset: _, data: _ } => {
+            Commands::PCMRAMWrite { chip_type: _, read_offset: _, write_offset: _, size: _, data: _ } => {
                 return Err(VgmError::FeatureNotSupported {
                     feature: "PCM RAM Write command serialization".to_string(),
                     version: 0, // Unknown version requirement
@@ -416,10 +821,13 @@ impl Commands {
 
             Commands::YM2612Port0Address2AWriteWait { n } => vec![0x80 + n],
 
-            Commands::DACStreamControlWrite {
-                register: _,
-                value: _,
-            } => {
+            // DAC Stream Control Commands (0x90-0x95)
+            Commands::DACStreamSetupControl { .. } |
+            Commands::DACStreamSetData { .. } |
+            Commands::DACStreamSetFrequency { .. } |
+            Commands::DACStreamStart { .. } |
+            Commands::DACStreamStop { .. } |
+            Commands::DACStreamStartFast { .. } => {
                 return Err(VgmError::FeatureNotSupported {
                     feature: "DAC Stream Control Write command serialization".to_string(),
                     version: 0, // Unknown version requirement
@@ -727,14 +1135,20 @@ impl Commands {
                 Commands::EndOfSoundData
             },
             0x67 => {
-                // handle data block command
-                // skip compatibility arg (0x66)
-                bytes.get_u8();
-                let data_type = bytes.get_u8();
+                // handle data block command: 0x67 0x66 tt ss ss ss ss (data)
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x67,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
+                
+                let block_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
                 
-                // Security: Prevent DoS attacks from malicious files with excessive data sizes
-                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                // Security: Check data block size limit
                 if data_size > MAX_DATA_BLOCK_SIZE {
                     return Err(VgmError::DataSizeExceedsLimit {
                         field: "DataBlock".to_string(),
@@ -752,20 +1166,56 @@ impl Commands {
                     });
                 }
                 
+                // Parse the data block content based on its type
+                let data = DataBlockContent::parse_from_bytes(block_type, data_size, bytes)?;
+                
                 Commands::DataBlock {
-                    data_type,
-                    data_size,
-                    data: (0..data_size as usize)
-                        .map(|_| bytes.get_u8())
-                        .collect(),
+                    block_type,
+                    data,
                 }
             },
             0x68 => {
-                // handle PCM RAM write command
-                // TODO: not done
+                // PCM RAM write command: 0x68 0x66 cc oo oo oo dd dd dd ss ss ss
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x68,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
+                
+                let chip_type = bytes.get_u8();
+                
+                // Read 24-bit values (little-endian)
+                let read_offset = bytes.get_u8() as u32 | 
+                                ((bytes.get_u8() as u32) << 8) | 
+                                ((bytes.get_u8() as u32) << 16);
+                                
+                let write_offset = bytes.get_u8() as u32 | 
+                                 ((bytes.get_u8() as u32) << 8) | 
+                                 ((bytes.get_u8() as u32) << 16);
+                                 
+                let mut size = bytes.get_u8() as u32 | 
+                             ((bytes.get_u8() as u32) << 8) | 
+                             ((bytes.get_u8() as u32) << 16);
+                
+                // Special case: size of 0 means 0x01000000 bytes
+                if size == 0 {
+                    size = 0x01000000;
+                }
+                
+                // Read the data
+                let data: Vec<u8> = (0..size as usize)
+                    .map(|_| bytes.get_u8())
+                    .collect();
+                
                 Commands::PCMRAMWrite {
-                    offset: 0,
-                    data: vec![],
+                    chip_type,
+                    read_offset,
+                    write_offset,
+                    size,
+                    data,
                 }
             },
             0x70..=0x7F => {
@@ -781,11 +1231,51 @@ impl Commands {
                 }
             },
             0x90..=0x95 => {
-                // handle DAC Stream Control Write command
-                // TODO: not done
-                Commands::DACStreamControlWrite {
-                    register: 0,
-                    value: 0,
+                // DAC Stream Control Write commands - proper parsing implementation
+                match command_val {
+                    0x90 => {
+                        // Setup Stream Control: ss tt pp cc (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let chip_type = bytes.get_u8();
+                        let port = bytes.get_u8();
+                        let command = bytes.get_u8();
+                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
+                    },
+                    0x91 => {
+                        // Set Stream Data: ss dd ll bb (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let data_bank_id = bytes.get_u8();
+                        let step_size = bytes.get_u8();
+                        let step_base = bytes.get_u8();
+                        Commands::DACStreamSetData { stream_id, data_bank_id, step_size, step_base }
+                    },
+                    0x92 => {
+                        // Set Stream Frequency: ss ff ff ff ff (5 bytes)
+                        let stream_id = bytes.get_u8();
+                        let frequency = bytes.get_u32_le();
+                        Commands::DACStreamSetFrequency { stream_id, frequency }
+                    },
+                    0x93 => {
+                        // Start Stream: ss aa aa aa aa mm ll ll ll ll (10 bytes)
+                        let stream_id = bytes.get_u8();
+                        let data_start_offset = bytes.get_u32_le();
+                        let length_mode = bytes.get_u8();
+                        let data_length = bytes.get_u32_le();
+                        Commands::DACStreamStart { stream_id, data_start_offset, length_mode, data_length }
+                    },
+                    0x94 => {
+                        // Stop Stream: ss (1 byte)
+                        let stream_id = bytes.get_u8();
+                        Commands::DACStreamStop { stream_id }
+                    },
+                    0x95 => {
+                        // Start Stream (fast call): ss bb bb ff (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let block_id = bytes.get_u16_le();
+                        let flags = bytes.get_u8();
+                        Commands::DACStreamStartFast { stream_id, block_id, flags }
+                    },
+                    _ => unreachable!(), // Range 0x90..=0x95 guarantees this won't happen
                 }
             },
             0xA0 => {
@@ -1130,14 +1620,20 @@ impl Commands {
                 Commands::EndOfSoundData
             },
             0x67 => {
-                // handle data block command
-                // skip compatibility arg (0x66)
-                bytes.get_u8();
-                let data_type = bytes.get_u8();
+                // handle data block command: 0x67 0x66 tt ss ss ss ss (data)
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x67,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
+                
+                let block_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
                 
-                // Security: Prevent DoS attacks from malicious files with excessive data sizes
-                const MAX_DATA_BLOCK_SIZE: u32 = 16 * 1024 * 1024; // 16MB limit
+                // Security: Check data block size limit
                 if data_size > MAX_DATA_BLOCK_SIZE {
                     return Err(VgmError::DataSizeExceedsLimit {
                         field: "DataBlock".to_string(),
@@ -1155,20 +1651,56 @@ impl Commands {
                     });
                 }
                 
+                // Parse the data block content based on its type
+                let data = DataBlockContent::parse_from_bytes(block_type, data_size, bytes)?;
+                
                 Commands::DataBlock {
-                    data_type,
-                    data_size,
-                    data: (0..data_size as usize)
-                        .map(|_| bytes.get_u8())
-                        .collect(),
+                    block_type,
+                    data,
                 }
             },
             0x68 => {
-                // handle PCM RAM write command
-                // TODO: not done
+                // PCM RAM write command: 0x68 0x66 cc oo oo oo dd dd dd ss ss ss
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x68,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
+                
+                let chip_type = bytes.get_u8();
+                
+                // Read 24-bit values (little-endian)
+                let read_offset = bytes.get_u8() as u32 | 
+                                ((bytes.get_u8() as u32) << 8) | 
+                                ((bytes.get_u8() as u32) << 16);
+                                
+                let write_offset = bytes.get_u8() as u32 | 
+                                 ((bytes.get_u8() as u32) << 8) | 
+                                 ((bytes.get_u8() as u32) << 16);
+                                 
+                let mut size = bytes.get_u8() as u32 | 
+                             ((bytes.get_u8() as u32) << 8) | 
+                             ((bytes.get_u8() as u32) << 16);
+                
+                // Special case: size of 0 means 0x01000000 bytes
+                if size == 0 {
+                    size = 0x01000000;
+                }
+                
+                // Read the data
+                let data: Vec<u8> = (0..size as usize)
+                    .map(|_| bytes.get_u8())
+                    .collect();
+                
                 Commands::PCMRAMWrite {
-                    offset: 0,
-                    data: vec![],
+                    chip_type,
+                    read_offset,
+                    write_offset,
+                    size,
+                    data,
                 }
             },
             0x70..=0x7F => {
@@ -1184,11 +1716,51 @@ impl Commands {
                 }
             },
             0x90..=0x95 => {
-                // handle DAC Stream Control Write command
-                // TODO: not done
-                Commands::DACStreamControlWrite {
-                    register: 0,
-                    value: 0,
+                // DAC Stream Control Write commands - proper parsing implementation
+                match command_val {
+                    0x90 => {
+                        // Setup Stream Control: ss tt pp cc (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let chip_type = bytes.get_u8();
+                        let port = bytes.get_u8();
+                        let command = bytes.get_u8();
+                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
+                    },
+                    0x91 => {
+                        // Set Stream Data: ss dd ll bb (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let data_bank_id = bytes.get_u8();
+                        let step_size = bytes.get_u8();
+                        let step_base = bytes.get_u8();
+                        Commands::DACStreamSetData { stream_id, data_bank_id, step_size, step_base }
+                    },
+                    0x92 => {
+                        // Set Stream Frequency: ss ff ff ff ff (5 bytes)
+                        let stream_id = bytes.get_u8();
+                        let frequency = bytes.get_u32_le();
+                        Commands::DACStreamSetFrequency { stream_id, frequency }
+                    },
+                    0x93 => {
+                        // Start Stream: ss aa aa aa aa mm ll ll ll ll (10 bytes)
+                        let stream_id = bytes.get_u8();
+                        let data_start_offset = bytes.get_u32_le();
+                        let length_mode = bytes.get_u8();
+                        let data_length = bytes.get_u32_le();
+                        Commands::DACStreamStart { stream_id, data_start_offset, length_mode, data_length }
+                    },
+                    0x94 => {
+                        // Stop Stream: ss (1 byte)
+                        let stream_id = bytes.get_u8();
+                        Commands::DACStreamStop { stream_id }
+                    },
+                    0x95 => {
+                        // Start Stream (fast call): ss bb bb ff (4 bytes)
+                        let stream_id = bytes.get_u8();
+                        let block_id = bytes.get_u16_le();
+                        let flags = bytes.get_u8();
+                        Commands::DACStreamStartFast { stream_id, block_id, flags }
+                    },
+                    _ => unreachable!(), // Range 0x90..=0x95 guarantees this won't happen
                 }
             },
             0xA0 => {
@@ -1509,8 +2081,17 @@ impl Commands {
             0x63 => Commands::Wait882Samples,
             0x66 => Commands::EndOfSoundData,
             0x67 => {
-                // DataBlock with security checks
-                let data_type = bytes.get_u8();
+                // handle data block command: 0x67 0x66 tt ss ss ss ss (data)
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x67,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
+                
+                let block_type = bytes.get_u8();
                 let data_size = bytes.get_u32_le();
                 
                 // Check DataBlock size against config limits
@@ -1528,30 +2109,77 @@ impl Commands {
                     });
                 }
                 
-                // Use allocation guard for safe collection
-                let mut guard = crate::AllocationGuard::new(tracker, config);
-                let data = guard.collect_with_limit(
-                    (0..data_size as usize).map(|_| bytes.get_u8()),
-                    data_size as usize,
-                    "DataBlock"
-                )?;
+                // Parse the data block content based on its type
+                let data = DataBlockContent::parse_from_bytes(block_type, data_size, bytes)?;
                 
                 Commands::DataBlock {
-                    data_type,
-                    data_size,
+                    block_type,
                     data,
                 }
             },
             0x68 => {
-                // PCMRAMWrite - currently incomplete, but with proper structure for future implementation
-                let _offset = bytes.get_u32_le();
-                let _size = bytes.get_u32_le();
+                // PCM RAM write command: 0x68 0x66 cc oo oo oo dd dd dd ss ss ss
+                let compatibility_byte = bytes.get_u8();
+                if compatibility_byte != 0x66 {
+                    return Err(VgmError::InvalidCommandParameters {
+                        opcode: 0x68,
+                        position: 0, // TODO: track position
+                        reason: format!("Expected compatibility byte 0x66, found 0x{:02X}", compatibility_byte),
+                    });
+                }
                 
-                // TODO: Implement proper PCMRAMWrite parsing with size limits
-                // For now, return empty implementation to maintain compatibility
+                let chip_type = bytes.get_u8();
+                
+                // Read 24-bit values (little-endian)
+                let read_offset = bytes.get_u8() as u32 | 
+                                ((bytes.get_u8() as u32) << 8) | 
+                                ((bytes.get_u8() as u32) << 16);
+                                
+                let write_offset = bytes.get_u8() as u32 | 
+                                 ((bytes.get_u8() as u32) << 8) | 
+                                 ((bytes.get_u8() as u32) << 16);
+                                 
+                let mut size = bytes.get_u8() as u32 | 
+                             ((bytes.get_u8() as u32) << 8) | 
+                             ((bytes.get_u8() as u32) << 16);
+                
+                // Special case: size of 0 means 0x01000000 bytes
+                if size == 0 {
+                    size = 0x01000000;
+                }
+                
+                // Security: Check data size limits before allocation
+                if size as usize > config.max_command_memory {
+                    return Err(VgmError::DataSizeExceedsLimit {
+                        field: "PCM RAM write data".to_string(),
+                        size: size as usize,
+                        limit: config.max_command_memory,
+                    });
+                }
+                
+                // Check buffer availability
+                if bytes.remaining() < size as usize {
+                    return Err(VgmError::BufferUnderflow {
+                        offset: 0, // TODO: track position
+                        needed: size as usize,
+                        available: bytes.remaining(),
+                    });
+                }
+                
+                // Track memory allocation
+                tracker.track_data_block(config, size)?;
+                
+                // Read the data
+                let data: Vec<u8> = (0..size as usize)
+                    .map(|_| bytes.get_u8())
+                    .collect();
+                
                 Commands::PCMRAMWrite {
-                    offset: 0,
-                    data: vec![],
+                    chip_type,
+                    read_offset,
+                    write_offset,
+                    size,
+                    data,
                 }
             },
             0x70..=0x7F => {
@@ -1565,40 +2193,46 @@ impl Commands {
                 }
             },
             0x90 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Setup Stream Control: ss tt pp cc (4 bytes)
+                let stream_id = bytes.get_u8();
+                let chip_type = bytes.get_u8();
+                let port = bytes.get_u8();
+                let command = bytes.get_u8();
+                Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
             },
             0x91 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Set Stream Data: ss dd ll bb (4 bytes)
+                let stream_id = bytes.get_u8();
+                let data_bank_id = bytes.get_u8();
+                let step_size = bytes.get_u8();
+                let step_base = bytes.get_u8();
+                Commands::DACStreamSetData { stream_id, data_bank_id, step_size, step_base }
             },
             0x92 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Set Stream Frequency: ss ff ff ff ff (5 bytes)
+                let stream_id = bytes.get_u8();
+                let frequency = bytes.get_u32_le();
+                Commands::DACStreamSetFrequency { stream_id, frequency }
             },
             0x93 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Start Stream: ss aa aa aa aa mm ll ll ll ll (10 bytes)
+                let stream_id = bytes.get_u8();
+                let data_start_offset = bytes.get_u32_le();
+                let length_mode = bytes.get_u8();
+                let data_length = bytes.get_u32_le();
+                Commands::DACStreamStart { stream_id, data_start_offset, length_mode, data_length }
             },
             0x94 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Stop Stream: ss (1 byte)
+                let stream_id = bytes.get_u8();
+                Commands::DACStreamStop { stream_id }
             },
             0x95 => {
-                Commands::DACStreamControlWrite {
-                    register: bytes.get_u8(),
-                    value: bytes.get_u8(),
-                }
+                // Start Stream (fast call): ss bb bb ff (4 bytes)
+                let stream_id = bytes.get_u8();
+                let block_id = bytes.get_u16_le();
+                let flags = bytes.get_u8();
+                Commands::DACStreamStartFast { stream_id, block_id, flags }
             },
             0xA0 => {
                 Commands::AY8910Write {
