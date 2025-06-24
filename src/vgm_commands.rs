@@ -559,69 +559,86 @@ pub enum Commands {
     },
     GameGearPSGStereo {
         value: u8,
+        chip_index: u8,
     },
     PSGWrite {
         value: u8,
+        chip_index: u8,
     },
     YM2413Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2612Port0Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2612Port1Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2151Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2203Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2608Port0Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2608Port1Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2610Port0Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM2610Port1Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM3812Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YM3526Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     Y8950Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YMZ280BWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YMF262Port0Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     YMF262Port1Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     WaitNSamples {
         n: u16,
@@ -652,6 +669,7 @@ pub enum Commands {
         chip_type: u8,
         port: u8,
         command: u8,
+        chip_index: u8,
     },
     DACStreamSetData {
         stream_id: u8,
@@ -680,6 +698,7 @@ pub enum Commands {
     AY8910Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     RF5C68Write {
         register: u8,
@@ -696,54 +715,67 @@ pub enum Commands {
     GameBoyDMGWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     NESAPUWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     MultiPCMWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     uPD7759Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     OKIM6258Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     OKIM6295Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     HuC6280Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     K053260Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     PokeyWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     WonderSwanWrite {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     SAA1099Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     ES5506Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     GA20Write {
         register: u8,
         value: u8,
+        chip_index: u8,
     },
     SegaPCMWrite {
         offset: u16,
@@ -906,56 +938,85 @@ impl Commands {
             Commands::AY8910StereoMask { value } => {
                 vec![0x31, value]
             },
-            Commands::GameGearPSGStereo { value } => {
-                vec![0x4f, value]
+            Commands::GameGearPSGStereo { value, chip_index } => {
+                match chip_index {
+                    0 => vec![0x4f, value],  // First chip
+                    1 => vec![0x3f, value],  // Second chip  
+                    _ => return Err(VgmError::InvalidDataFormat {
+                        field: "chip_index".to_string(),
+                        details: format!("Invalid chip_index {} for GameGearPSGStereo, must be 0 or 1", chip_index),
+                    }),
+                }
             },
-            Commands::PSGWrite { value } => {
-                vec![0x50, value]
+            Commands::PSGWrite { value, chip_index } => {
+                match chip_index {
+                    0 => vec![0x50, value],  // First chip
+                    1 => vec![0x30, value],  // Second chip
+                    _ => return Err(VgmError::InvalidDataFormat {
+                        field: "chip_index".to_string(),
+                        details: format!("Invalid chip_index {} for PSGWrite, must be 0 or 1", chip_index),
+                    }),
+                }
             },
-            Commands::YM2413Write { register, value } => {
-                vec![0x51, register, value]
+            Commands::YM2413Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x51 } else { 0xA1 };
+                vec![opcode, register, value]
             },
-            Commands::YM2612Port0Write { register, value } => {
-                vec![0x52, register, value]
+            Commands::YM2612Port0Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x52 } else { 0xA2 };
+                vec![opcode, register, value]
             },
-            Commands::YM2612Port1Write { register, value } => {
-                vec![0x53, register, value]
+            Commands::YM2612Port1Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x53 } else { 0xA3 };
+                vec![opcode, register, value]
             },
-            Commands::YM2151Write { register, value } => {
-                vec![0x54, register, value]
+            Commands::YM2151Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x54 } else { 0xA4 };
+                vec![opcode, register, value]
             },
-            Commands::YM2203Write { register, value } => {
-                vec![0x55, register, value]
+            Commands::YM2203Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x55 } else { 0xA5 };
+                vec![opcode, register, value]
             },
-            Commands::YM2608Port0Write { register, value } => {
-                vec![0x56, register, value]
+            Commands::YM2608Port0Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x56 } else { 0xA6 };
+                vec![opcode, register, value]
             },
-            Commands::YM2608Port1Write { register, value } => {
-                vec![0x57, register, value]
+            Commands::YM2608Port1Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x57 } else { 0xA7 };
+                vec![opcode, register, value]
             },
-            Commands::YM2610Port0Write { register, value } => {
-                vec![0x58, register, value]
+            Commands::YM2610Port0Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x58 } else { 0xA8 };
+                vec![opcode, register, value]
             },
-            Commands::YM2610Port1Write { register, value } => {
-                vec![0x59, register, value]
+            Commands::YM2610Port1Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x59 } else { 0xA9 };
+                vec![opcode, register, value]
             },
-            Commands::YM3812Write { register, value } => {
-                vec![0x5A, register, value]
+            Commands::YM3812Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5A } else { 0xAA };
+                vec![opcode, register, value]
             },
-            Commands::YM3526Write { register, value } => {
-                vec![0x5B, register, value]
+            Commands::YM3526Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5B } else { 0xAB };
+                vec![opcode, register, value]
             },
-            Commands::Y8950Write { register, value } => {
-                vec![0x5C, register, value]
+            Commands::Y8950Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5C } else { 0xAC };
+                vec![opcode, register, value]
             },
-            Commands::YMZ280BWrite { register, value } => {
-                vec![0x5D, register, value]
+            Commands::YMZ280BWrite { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5D } else { 0xAD };
+                vec![opcode, register, value]
             },
-            Commands::YMF262Port0Write { register, value } => {
-                vec![0x5E, register, value]
+            Commands::YMF262Port0Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5E } else { 0xAE };
+                vec![opcode, register, value]
             },
-            Commands::YMF262Port1Write { register, value } => {
-                vec![0x5F, register, value]
+            Commands::YMF262Port1Write { register, value, chip_index } => {
+                let opcode = if chip_index == 0 { 0x5F } else { 0xAF };
+                vec![opcode, register, value]
             },
             Commands::WaitNSamples { n } => {
                 let temp = n.to_le_bytes();
@@ -1059,21 +1120,38 @@ impl Commands {
             Commands::YM2612Port0Address2AWriteWait { n } => vec![0x80 + n],
 
             // DAC Stream Control Commands (0x90-0x95)
-            Commands::DACStreamSetupControl { .. } |
-            Commands::DACStreamSetData { .. } |
-            Commands::DACStreamSetFrequency { .. } |
-            Commands::DACStreamStart { .. } |
-            Commands::DACStreamStop { .. } |
-            Commands::DACStreamStartFast { .. } => {
-                return Err(VgmError::FeatureNotSupported {
-                    feature: "DAC Stream Control Write command serialization".to_string(),
-                    version: 0, // Unknown version requirement
-                    min_version: 0, // Would need to research the actual VGM version requirement
-                });
+            Commands::DACStreamSetupControl { stream_id, chip_type, port, command, chip_index } => {
+                // Dual chip support: Set bit 7 of chip_type when chip_index == 1
+                let adjusted_chip_type = if chip_index == 0 { chip_type & 0x7F } else { chip_type | 0x80 };
+                vec![0x90, stream_id, adjusted_chip_type, port, command]
+            },
+            Commands::DACStreamSetData { stream_id, data_bank_id, step_size, step_base } => {
+                vec![0x91, stream_id, data_bank_id, step_size, step_base]
+            },
+            Commands::DACStreamSetFrequency { stream_id, frequency } => {
+                let freq_bytes = frequency.to_le_bytes();
+                vec![0x92, stream_id, freq_bytes[0], freq_bytes[1], freq_bytes[2], freq_bytes[3]]
+            },
+            Commands::DACStreamStart { stream_id, data_start_offset, length_mode, data_length } => {
+                let offset_bytes = data_start_offset.to_le_bytes();
+                let length_bytes = data_length.to_le_bytes();
+                vec![0x93, stream_id, 
+                     offset_bytes[0], offset_bytes[1], offset_bytes[2], offset_bytes[3],
+                     length_mode,
+                     length_bytes[0], length_bytes[1], length_bytes[2], length_bytes[3]]
+            },
+            Commands::DACStreamStop { stream_id } => {
+                vec![0x94, stream_id]
+            },
+            Commands::DACStreamStartFast { stream_id, block_id, flags } => {
+                let block_bytes = block_id.to_le_bytes();
+                vec![0x95, stream_id, block_bytes[0], block_bytes[1], flags]
             },
 
-            Commands::AY8910Write { register, value } => {
-                vec![0xA0, register, value]
+            Commands::AY8910Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xA0, adjusted_register, value]
             },
             Commands::RF5C68Write { register, value } => {
                 vec![0xB0, register, value]
@@ -1085,44 +1163,70 @@ impl Commands {
                 let temp = value.to_le_bytes();
                 vec![0xB2, register, temp[0], temp[1]]
             },
-            Commands::GameBoyDMGWrite { register, value } => {
-                vec![0xB3, register, value]
+            Commands::GameBoyDMGWrite { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB3, adjusted_register, value]
             },
-            Commands::NESAPUWrite { register, value } => {
-                vec![0xB4, register, value]
+            Commands::NESAPUWrite { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB4, adjusted_register, value]
             },
-            Commands::MultiPCMWrite { register, value } => {
-                vec![0xB5, register, value]
+            Commands::MultiPCMWrite { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB5, adjusted_register, value]
             },
-            Commands::uPD7759Write { register, value } => {
-                vec![0xB6, register, value]
+            Commands::uPD7759Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB6, adjusted_register, value]
             },
-            Commands::OKIM6258Write { register, value } => {
-                vec![0xB7, register, value]
+            Commands::OKIM6258Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB7, adjusted_register, value]
             },
-            Commands::OKIM6295Write { register, value } => {
-                vec![0xB8, register, value]
+            Commands::OKIM6295Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB8, adjusted_register, value]
             },
-            Commands::HuC6280Write { register, value } => {
-                vec![0xB9, register, value]
+            Commands::HuC6280Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xB9, adjusted_register, value]
             },
-            Commands::K053260Write { register, value } => {
-                vec![0xBA, register, value]
+            Commands::K053260Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBA, adjusted_register, value]
             },
-            Commands::PokeyWrite { register, value } => {
-                vec![0xBB, register, value]
+            Commands::PokeyWrite { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBB, adjusted_register, value]
             },
-            Commands::WonderSwanWrite { register, value } => {
-                vec![0xBC, register, value]
+            Commands::WonderSwanWrite { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBC, adjusted_register, value]
             },
-            Commands::SAA1099Write { register, value } => {
-                vec![0xBD, register, value]
+            Commands::SAA1099Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBD, adjusted_register, value]
             },
-            Commands::ES5506Write { register, value } => {
-                vec![0xBE, register, value]
+            Commands::ES5506Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBE, adjusted_register, value]
             },
-            Commands::GA20Write { register, value } => {
-                vec![0xBF, register, value]
+            Commands::GA20Write { register, value, chip_index } => {
+                // Method #2: Use bit 7 of register for chip selection (0x00-7F = chip 1, 0x80-FF = chip 2)
+                let adjusted_register = if chip_index == 0 { register & 0x7F } else { register | 0x80 };
+                vec![0xBF, adjusted_register, value]
             },
             Commands::SegaPCMWrite { offset, value } => {
                 let temp = offset.to_le_bytes();
@@ -1228,6 +1332,13 @@ impl Commands {
         
 
         let command = match command_val {
+            0x30 => {
+                // handle PSG write command - second chip (dual chip support)
+                Commands::PSGWrite {
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
             0x31 => {
                 // handle AY8910 stereo mask command
                 // `bytes.get(1)` gives you the `dd` value
@@ -1236,121 +1347,266 @@ impl Commands {
                     value: bytes.get_u8(),
                 }
             },
-            0x4F => {
-                // handle Game Gear PSG stereo command
+            0x3F => {
+                // handle Game Gear PSG stereo command - second chip (dual chip support)
                 Commands::GameGearPSGStereo {
                     value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0x4F => {
+                // handle Game Gear PSG stereo command - first chip
+                Commands::GameGearPSGStereo {
+                    value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x50 => {
-                // handle PSG write command
+                // handle PSG write command - first chip
                 Commands::PSGWrite {
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x51 => {
-                // handle YM2413 write command
+                // handle YM2413 write command - first chip
                 Commands::YM2413Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x52 => {
-                // handle YM2612 port 0 write command
+                // handle YM2612 port 0 write command - first chip
                 Commands::YM2612Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x53 => {
-                // handle YM2612 port 1 write command
+                // handle YM2612 port 1 write command - first chip
                 Commands::YM2612Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x54 => {
-                // handle YM2151 write command
+                // handle YM2151 write command - first chip
                 Commands::YM2151Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x55 => {
-                // handle YM2203 write command
+                // handle YM2203 write command - first chip
                 Commands::YM2203Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x56 => {
-                // handle YM2608 port 0 write command
+                // handle YM2608 port 0 write command - first chip
                 Commands::YM2608Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x57 => {
-                // handle YM2608 port 1 write command
+                // handle YM2608 port 1 write command - first chip
                 Commands::YM2608Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x58 => {
-                // handle YM2610 port 0 write command
+                // handle YM2610 port 0 write command - first chip
                 Commands::YM2610Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x59 => {
-                // handle YM2610 port 1 write command
+                // handle YM2610 port 1 write command - first chip
                 Commands::YM2610Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5A => {
-                // handle YM3812 write command
+                // handle YM3812 write command - first chip
                 Commands::YM3812Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5B => {
-                // handle YM3526 write command
+                // handle YM3526 write command - first chip
                 Commands::YM3526Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5C => {
-                // handle Y8950 write command
+                // handle Y8950 write command - first chip
                 Commands::Y8950Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5D => {
-                // handle YMZ280B write command
+                // handle YMZ280B write command - first chip
                 Commands::YMZ280BWrite {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5E => {
-                // handle YMF262 port 0 write command
+                // handle YMF262 port 0 write command - first chip
                 Commands::YMF262Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5F => {
-                // handle YMF262 port 1 write command
+                // handle YMF262 port 1 write command - first chip
                 Commands::YMF262Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
+                }
+            },
+            // YM family second chip commands (0xA1-0xAF) - Dual Chip Support Method #1
+            0xA1 => {
+                // handle YM2413 write command - second chip
+                Commands::YM2413Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA2 => {
+                // handle YM2612 port 0 write command - second chip
+                Commands::YM2612Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA3 => {
+                // handle YM2612 port 1 write command - second chip
+                Commands::YM2612Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA4 => {
+                // handle YM2151 write command - second chip
+                Commands::YM2151Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA5 => {
+                // handle YM2203 write command - second chip
+                Commands::YM2203Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA6 => {
+                // handle YM2608 port 0 write command - second chip
+                Commands::YM2608Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA7 => {
+                // handle YM2608 port 1 write command - second chip
+                Commands::YM2608Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA8 => {
+                // handle YM2610 port 0 write command - second chip
+                Commands::YM2610Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA9 => {
+                // handle YM2610 port 1 write command - second chip
+                Commands::YM2610Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAA => {
+                // handle YM3812 write command - second chip
+                Commands::YM3812Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAB => {
+                // handle YM3526 write command - second chip
+                Commands::YM3526Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAC => {
+                // handle Y8950 write command - second chip
+                Commands::Y8950Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAD => {
+                // handle YMZ280B write command - second chip
+                Commands::YMZ280BWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAE => {
+                // handle YMF262 port 0 write command - second chip
+                Commands::YMF262Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAF => {
+                // handle YMF262 port 1 write command - second chip
+                Commands::YMF262Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
                 }
             },
             0x61 => {
@@ -1471,12 +1727,14 @@ impl Commands {
                 // DAC Stream Control Write commands - proper parsing implementation
                 match command_val {
                     0x90 => {
-                        // Setup Stream Control: ss tt pp cc (4 bytes)
+                        // Setup Stream Control: ss tt pp cc (4 bytes) - DAC Stream dual chip support
                         let stream_id = bytes.get_u8();
-                        let chip_type = bytes.get_u8();
+                        let chip_type_raw = bytes.get_u8();
+                        let chip_type = chip_type_raw & 0x7F; // Mask off bit 7 for actual chip type
+                        let chip_index = if chip_type_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                         let port = bytes.get_u8();
                         let command = bytes.get_u8();
-                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
+                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command, chip_index }
                     },
                     0x91 => {
                         // Set Stream Data: ss dd ll bb (4 bytes)
@@ -1516,10 +1774,14 @@ impl Commands {
                 }
             },
             0xA0 => {
-                // handle AY8910 write command
+                // handle AY8910 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::AY8910Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB0 => {
@@ -1545,68 +1807,147 @@ impl Commands {
                 }
             },
             0xB3 => {
-                // handle GameBoy DMG write command
+                // handle GameBoy DMG write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::GameBoyDMGWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB4 => {
-                // handle NES APU write command
+                // handle NES APU write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::NESAPUWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB5 => {
-                // handle MultiPCM write command
+                // handle MultiPCM write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::MultiPCMWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB6 => {
-                // handle uPD7759 write command
+                // handle uPD7759 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::uPD7759Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
-            0xB7 => Commands::HuC6280Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB7 => {
+                // handle HuC6280 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::HuC6280Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xB8 => Commands::K053260Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB8 => {
+                // handle OKIM6295 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::OKIM6295Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xB9 => Commands::PokeyWrite {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB9 => {
+                // handle HuC6280 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::HuC6280Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBA => Commands::WonderSwanWrite {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBA => {
+                // handle K053260 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::K053260Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBB => Commands::SAA1099Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBB => {
+                // handle Pokey write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::PokeyWrite {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBC => Commands::ES5506Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBC => {
+                // handle WonderSwan write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::WonderSwanWrite {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBD => Commands::GA20Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBD => {
+                // handle SAA1099 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::SAA1099Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBE => Commands::ES5506Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBE => {
+                // handle ES5506 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::ES5506Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBF => Commands::GA20Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBF => {
+                // handle GA20 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::GA20Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
             0xC0 => Commands::SegaPCMWrite {
                 offset: bytes.get_u16_le(),
@@ -1713,6 +2054,13 @@ impl Commands {
     pub fn from_bytes_safe(bytes: &mut Bytes) -> VgmResult<Commands> {
         let command_val = bytes.get_u8();
         let command = match command_val {
+            0x30 => {
+                // handle PSG write command - second chip (dual chip support)
+                Commands::PSGWrite {
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
             0x31 => {
                 // handle AY8910 stereo mask command
                 // `bytes.get(1)` gives you the `dd` value
@@ -1721,121 +2069,266 @@ impl Commands {
                     value: bytes.get_u8(),
                 }
             },
-            0x4F => {
-                // handle Game Gear PSG stereo command
+            0x3F => {
+                // handle Game Gear PSG stereo command - second chip (dual chip support)
                 Commands::GameGearPSGStereo {
                     value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0x4F => {
+                // handle Game Gear PSG stereo command - first chip
+                Commands::GameGearPSGStereo {
+                    value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x50 => {
-                // handle PSG write command
+                // handle PSG write command - first chip
                 Commands::PSGWrite {
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x51 => {
-                // handle YM2413 write command
+                // handle YM2413 write command - first chip
                 Commands::YM2413Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x52 => {
-                // handle YM2612 port 0 write command
+                // handle YM2612 port 0 write command - first chip
                 Commands::YM2612Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x53 => {
-                // handle YM2612 port 1 write command
+                // handle YM2612 port 1 write command - first chip
                 Commands::YM2612Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x54 => {
-                // handle YM2151 write command
+                // handle YM2151 write command - first chip
                 Commands::YM2151Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x55 => {
-                // handle YM2203 write command
+                // handle YM2203 write command - first chip
                 Commands::YM2203Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x56 => {
-                // handle YM2608 port 0 write command
+                // handle YM2608 port 0 write command - first chip
                 Commands::YM2608Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x57 => {
-                // handle YM2608 port 1 write command
+                // handle YM2608 port 1 write command - first chip
                 Commands::YM2608Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x58 => {
-                // handle YM2610 port 0 write command
+                // handle YM2610 port 0 write command - first chip
                 Commands::YM2610Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x59 => {
-                // handle YM2610 port 1 write command
+                // handle YM2610 port 1 write command - first chip
                 Commands::YM2610Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5A => {
-                // handle YM3812 write command
+                // handle YM3812 write command - first chip
                 Commands::YM3812Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5B => {
-                // handle YM3526 write command
+                // handle YM3526 write command - first chip
                 Commands::YM3526Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5C => {
-                // handle Y8950 write command
+                // handle Y8950 write command - first chip
                 Commands::Y8950Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5D => {
-                // handle YMZ280B write command
+                // handle YMZ280B write command - first chip
                 Commands::YMZ280BWrite {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5E => {
-                // handle YMF262 port 0 write command
+                // handle YMF262 port 0 write command - first chip
                 Commands::YMF262Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5F => {
-                // handle YMF262 port 1 write command
+                // handle YMF262 port 1 write command - first chip
                 Commands::YMF262Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
+                }
+            },
+            // YM family second chip commands (0xA1-0xAF) - Dual Chip Support Method #1
+            0xA1 => {
+                // handle YM2413 write command - second chip
+                Commands::YM2413Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA2 => {
+                // handle YM2612 port 0 write command - second chip
+                Commands::YM2612Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA3 => {
+                // handle YM2612 port 1 write command - second chip
+                Commands::YM2612Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA4 => {
+                // handle YM2151 write command - second chip
+                Commands::YM2151Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA5 => {
+                // handle YM2203 write command - second chip
+                Commands::YM2203Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA6 => {
+                // handle YM2608 port 0 write command - second chip
+                Commands::YM2608Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA7 => {
+                // handle YM2608 port 1 write command - second chip
+                Commands::YM2608Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA8 => {
+                // handle YM2610 port 0 write command - second chip
+                Commands::YM2610Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA9 => {
+                // handle YM2610 port 1 write command - second chip
+                Commands::YM2610Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAA => {
+                // handle YM3812 write command - second chip
+                Commands::YM3812Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAB => {
+                // handle YM3526 write command - second chip
+                Commands::YM3526Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAC => {
+                // handle Y8950 write command - second chip
+                Commands::Y8950Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAD => {
+                // handle YMZ280B write command - second chip
+                Commands::YMZ280BWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAE => {
+                // handle YMF262 port 0 write command - second chip
+                Commands::YMF262Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAF => {
+                // handle YMF262 port 1 write command - second chip
+                Commands::YMF262Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
                 }
             },
             0x61 => {
@@ -1956,12 +2449,14 @@ impl Commands {
                 // DAC Stream Control Write commands - proper parsing implementation
                 match command_val {
                     0x90 => {
-                        // Setup Stream Control: ss tt pp cc (4 bytes)
+                        // Setup Stream Control: ss tt pp cc (4 bytes) - DAC Stream dual chip support
                         let stream_id = bytes.get_u8();
-                        let chip_type = bytes.get_u8();
+                        let chip_type_raw = bytes.get_u8();
+                        let chip_type = chip_type_raw & 0x7F; // Mask off bit 7 for actual chip type
+                        let chip_index = if chip_type_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                         let port = bytes.get_u8();
                         let command = bytes.get_u8();
-                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
+                        Commands::DACStreamSetupControl { stream_id, chip_type, port, command, chip_index }
                     },
                     0x91 => {
                         // Set Stream Data: ss dd ll bb (4 bytes)
@@ -2001,10 +2496,14 @@ impl Commands {
                 }
             },
             0xA0 => {
-                // handle AY8910 write command
+                // handle AY8910 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::AY8910Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB0 => {
@@ -2030,68 +2529,147 @@ impl Commands {
                 }
             },
             0xB3 => {
-                // handle GameBoy DMG write command
+                // handle GameBoy DMG write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::GameBoyDMGWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB4 => {
-                // handle NES APU write command
+                // handle NES APU write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::NESAPUWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB5 => {
-                // handle MultiPCM write command
+                // handle MultiPCM write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::MultiPCMWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB6 => {
-                // handle uPD7759 write command
+                // handle uPD7759 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::uPD7759Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
-            0xB7 => Commands::HuC6280Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB7 => {
+                // handle HuC6280 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::HuC6280Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xB8 => Commands::K053260Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB8 => {
+                // handle OKIM6295 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::OKIM6295Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xB9 => Commands::PokeyWrite {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xB9 => {
+                // handle HuC6280 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::HuC6280Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBA => Commands::WonderSwanWrite {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBA => {
+                // handle K053260 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::K053260Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBB => Commands::SAA1099Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBB => {
+                // handle Pokey write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::PokeyWrite {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBC => Commands::ES5506Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBC => {
+                // handle WonderSwan write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::WonderSwanWrite {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBD => Commands::GA20Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBD => {
+                // handle SAA1099 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::SAA1099Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBE => Commands::ES5506Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBE => {
+                // handle ES5506 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::ES5506Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
-            0xBF => Commands::GA20Write {
-                register: bytes.get_u8(),
-                value: bytes.get_u8(),
+            0xBF => {
+                // handle GA20 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
+                Commands::GA20Write {
+                    register,
+                    value: bytes.get_u8(),
+                    chip_index,
+                }
             },
             0xC0 => Commands::SegaPCMWrite {
                 offset: bytes.get_u16_le(),
@@ -2204,109 +2782,244 @@ impl Commands {
         let command_val = bytes.get_u8();
         
         let command = match command_val {
+            0x30 => {
+                Commands::PSGWrite {
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
             0x31 => {
                 Commands::AY8910StereoMask {
                     value: bytes.get_u8(),
                 }
             },
+            0x3F => {
+                Commands::GameGearPSGStereo {
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
             0x4F => {
                 Commands::GameGearPSGStereo {
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x50 => {
                 Commands::PSGWrite {
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x51 => {
                 Commands::YM2413Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x52 => {
                 Commands::YM2612Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x53 => {
                 Commands::YM2612Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x54 => {
                 Commands::YM2151Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x55 => {
                 Commands::YM2203Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x56 => {
                 Commands::YM2608Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x57 => {
                 Commands::YM2608Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x58 => {
                 Commands::YM2610Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x59 => {
                 Commands::YM2610Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5A => {
                 Commands::YM3812Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5B => {
                 Commands::YM3526Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5C => {
                 Commands::Y8950Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5D => {
                 Commands::YMZ280BWrite {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5E => {
                 Commands::YMF262Port0Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
                 }
             },
             0x5F => {
                 Commands::YMF262Port1Write {
                     register: bytes.get_u8(),
                     value: bytes.get_u8(),
+                    chip_index: 0,
+                }
+            },
+            // YM family second chip commands (0xA1-0xAF) - Dual Chip Support Method #1
+            0xA1 => {
+                Commands::YM2413Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA2 => {
+                Commands::YM2612Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA3 => {
+                Commands::YM2612Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA4 => {
+                Commands::YM2151Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA5 => {
+                Commands::YM2203Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA6 => {
+                Commands::YM2608Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA7 => {
+                Commands::YM2608Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA8 => {
+                Commands::YM2610Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xA9 => {
+                Commands::YM2610Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAA => {
+                Commands::YM3812Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAB => {
+                Commands::YM3526Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAC => {
+                Commands::Y8950Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAD => {
+                Commands::YMZ280BWrite {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAE => {
+                Commands::YMF262Port0Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
+                }
+            },
+            0xAF => {
+                Commands::YMF262Port1Write {
+                    register: bytes.get_u8(),
+                    value: bytes.get_u8(),
+                    chip_index: 1,
                 }
             },
             0x61 => {
@@ -2430,12 +3143,14 @@ impl Commands {
                 }
             },
             0x90 => {
-                // Setup Stream Control: ss tt pp cc (4 bytes)
+                // Setup Stream Control: ss tt pp cc (4 bytes) - DAC Stream dual chip support
                 let stream_id = bytes.get_u8();
-                let chip_type = bytes.get_u8();
+                let chip_type_raw = bytes.get_u8();
+                let chip_type = chip_type_raw & 0x7F; // Mask off bit 7 for actual chip type
+                let chip_index = if chip_type_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 let port = bytes.get_u8();
                 let command = bytes.get_u8();
-                Commands::DACStreamSetupControl { stream_id, chip_type, port, command }
+                Commands::DACStreamSetupControl { stream_id, chip_type, port, command, chip_index }
             },
             0x91 => {
                 // Set Stream Data: ss dd ll bb (4 bytes)
@@ -2472,9 +3187,14 @@ impl Commands {
                 Commands::DACStreamStartFast { stream_id, block_id, flags }
             },
             0xA0 => {
+                // handle AY8910 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::AY8910Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB0 => {
@@ -2496,81 +3216,146 @@ impl Commands {
                 }
             },
             0xB3 => {
+                // handle GameBoy DMG write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::GameBoyDMGWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB4 => {
+                // handle NES APU write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::NESAPUWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB5 => {
+                // handle MultiPCM write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::MultiPCMWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB6 => {
+                // handle uPD7759 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::uPD7759Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB7 => {
+                // handle OKIM6258 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::OKIM6258Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB8 => {
+                // handle OKIM6295 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::OKIM6295Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xB9 => {
+                // handle HuC6280 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::HuC6280Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBA => {
+                // handle K053260 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::K053260Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBB => {
+                // handle Pokey write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::PokeyWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBC => {
+                // handle WonderSwan write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::WonderSwanWrite {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBD => {
+                // handle SAA1099 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::SAA1099Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBE => {
+                // handle ES5506 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::ES5506Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xBF => {
+                // handle GA20 write command - Method #2: bit 7 determines chip
+                let register_raw = bytes.get_u8();
+                let register = register_raw & 0x7F; // Mask off bit 7 for actual register
+                let chip_index = if register_raw & 0x80 != 0 { 1 } else { 0 }; // Check bit 7 for chip
                 Commands::GA20Write {
-                    register: bytes.get_u8(),
+                    register,
                     value: bytes.get_u8(),
+                    chip_index,
                 }
             },
             0xC0 => {
@@ -2658,6 +3443,380 @@ impl Commands {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_dual_chip_psg_support() {
+        // Test PSG first chip (0x50)
+        let mut data1 = Bytes::from(vec![0x50, 0xAB]);
+        let cmd1 = Commands::from_bytes(&mut data1).unwrap();
+        if let Commands::PSGWrite { value, chip_index } = cmd1 {
+            assert_eq!(value, 0xAB);
+            assert_eq!(chip_index, 0);
+        } else {
+            panic!("Expected PSGWrite command");
+        }
+
+        // Test PSG second chip (0x30)
+        let mut data2 = Bytes::from(vec![0x30, 0xCD]);
+        let cmd2 = Commands::from_bytes(&mut data2).unwrap();
+        if let Commands::PSGWrite { value, chip_index } = cmd2 {
+            assert_eq!(value, 0xCD);
+            assert_eq!(chip_index, 1);
+        } else {
+            panic!("Expected PSGWrite command");
+        }
+
+        // Test Game Gear PSG stereo first chip (0x4F)
+        let mut data3 = Bytes::from(vec![0x4F, 0xEF]);
+        let cmd3 = Commands::from_bytes(&mut data3).unwrap();
+        if let Commands::GameGearPSGStereo { value, chip_index } = cmd3 {
+            assert_eq!(value, 0xEF);
+            assert_eq!(chip_index, 0);
+        } else {
+            panic!("Expected GameGearPSGStereo command");
+        }
+
+        // Test Game Gear PSG stereo second chip (0x3F)
+        let mut data4 = Bytes::from(vec![0x3F, 0x12]);
+        let cmd4 = Commands::from_bytes(&mut data4).unwrap();
+        if let Commands::GameGearPSGStereo { value, chip_index } = cmd4 {
+            assert_eq!(value, 0x12);
+            assert_eq!(chip_index, 1);
+        } else {
+            panic!("Expected GameGearPSGStereo command");
+        }
+    }
+
+    #[test]
+    fn test_dual_chip_psg_serialization() {
+        // Test PSG first chip serialization
+        let cmd1 = Commands::PSGWrite { value: 0xAB, chip_index: 0 };
+        let bytes1 = cmd1.to_bytes().unwrap();
+        assert_eq!(bytes1, vec![0x50, 0xAB]);
+
+        // Test PSG second chip serialization
+        let cmd2 = Commands::PSGWrite { value: 0xCD, chip_index: 1 };
+        let bytes2 = cmd2.to_bytes().unwrap();
+        assert_eq!(bytes2, vec![0x30, 0xCD]);
+
+        // Test Game Gear PSG stereo first chip serialization
+        let cmd3 = Commands::GameGearPSGStereo { value: 0xEF, chip_index: 0 };
+        let bytes3 = cmd3.to_bytes().unwrap();
+        assert_eq!(bytes3, vec![0x4F, 0xEF]);
+
+        // Test Game Gear PSG stereo second chip serialization
+        let cmd4 = Commands::GameGearPSGStereo { value: 0x12, chip_index: 1 };
+        let bytes4 = cmd4.to_bytes().unwrap();
+        assert_eq!(bytes4, vec![0x3F, 0x12]);
+    }
+
+    #[test]
+    fn test_dual_chip_psg_invalid_chip_index() {
+        // Test invalid chip_index for PSGWrite
+        let cmd1 = Commands::PSGWrite { value: 0xAB, chip_index: 2 };
+        let result1 = cmd1.to_bytes();
+        assert!(result1.is_err());
+
+        // Test invalid chip_index for GameGearPSGStereo
+        let cmd2 = Commands::GameGearPSGStereo { value: 0xCD, chip_index: 255 };
+        let result2 = cmd2.to_bytes();
+        assert!(result2.is_err());
+    }
+
+    #[test]
+    fn test_dual_chip_ym_parsing_first_chip() {
+        // Test all YM family first chip commands (0x51-0x5F)
+        let test_cases = vec![
+            (0x51, "YM2413"),
+            (0x52, "YM2612Port0"),
+            (0x53, "YM2612Port1"),
+            (0x54, "YM2151"),
+            (0x55, "YM2203"),
+            (0x56, "YM2608Port0"),
+            (0x57, "YM2608Port1"),
+            (0x58, "YM2610Port0"),
+            (0x59, "YM2610Port1"),
+            (0x5A, "YM3812"),
+            (0x5B, "YM3526"),
+            (0x5C, "Y8950"),
+            (0x5D, "YMZ280B"),
+            (0x5E, "YMF262Port0"),
+            (0x5F, "YMF262Port1"),
+        ];
+
+        for (opcode, name) in test_cases {
+            let mut bytes = Bytes::from(vec![opcode, 0x42, 0x73]); // register=0x42, value=0x73
+            let result = Commands::from_bytes(&mut bytes);
+            assert!(result.is_ok(), "Failed to parse {} first chip command", name);
+            
+            // Verify chip_index is 0 for first chip
+            match result.unwrap() {
+                Commands::YM2413Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2612Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2612Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2151Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2203Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2608Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2608Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2610Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM2610Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM3812Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YM3526Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::Y8950Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YMZ280BWrite { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YMF262Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                Commands::YMF262Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 0);
+                },
+                _ => panic!("Unexpected command type for opcode 0x{:02X}", opcode),
+            }
+        }
+    }
+
+    #[test]
+    fn test_dual_chip_ym_parsing_second_chip() {
+        // Test all YM family second chip commands (0xA1-0xAF)
+        let test_cases = vec![
+            (0xA1, "YM2413"),
+            (0xA2, "YM2612Port0"),
+            (0xA3, "YM2612Port1"),
+            (0xA4, "YM2151"),
+            (0xA5, "YM2203"),
+            (0xA6, "YM2608Port0"),
+            (0xA7, "YM2608Port1"),
+            (0xA8, "YM2610Port0"),
+            (0xA9, "YM2610Port1"),
+            (0xAA, "YM3812"),
+            (0xAB, "YM3526"),
+            (0xAC, "Y8950"),
+            (0xAD, "YMZ280B"),
+            (0xAE, "YMF262Port0"),
+            (0xAF, "YMF262Port1"),
+        ];
+
+        for (opcode, name) in test_cases {
+            let mut bytes = Bytes::from(vec![opcode, 0x42, 0x73]); // register=0x42, value=0x73
+            let result = Commands::from_bytes(&mut bytes);
+            assert!(result.is_ok(), "Failed to parse {} second chip command", name);
+            
+            // Verify chip_index is 1 for second chip
+            match result.unwrap() {
+                Commands::YM2413Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2612Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2612Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2151Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2203Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2608Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2608Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2610Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM2610Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM3812Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YM3526Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::Y8950Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YMZ280BWrite { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YMF262Port0Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                Commands::YMF262Port1Write { register, value, chip_index } => {
+                    assert_eq!(register, 0x42);
+                    assert_eq!(value, 0x73);
+                    assert_eq!(chip_index, 1);
+                },
+                _ => panic!("Unexpected command type for opcode 0x{:02X}", opcode),
+            }
+        }
+    }
+
+    #[test]
+    fn test_dual_chip_ym_serialization() {
+        // Test serialization of YM commands with chip_index
+        let test_commands = vec![
+            // First chip commands (should serialize to 0x5n)
+            (Commands::YM2413Write { register: 0x42, value: 0x73, chip_index: 0 }, vec![0x51, 0x42, 0x73]),
+            (Commands::YM2612Port0Write { register: 0x42, value: 0x73, chip_index: 0 }, vec![0x52, 0x42, 0x73]),
+            (Commands::YM2151Write { register: 0x42, value: 0x73, chip_index: 0 }, vec![0x54, 0x42, 0x73]),
+            
+            // Second chip commands (should serialize to 0xAn)
+            (Commands::YM2413Write { register: 0x42, value: 0x73, chip_index: 1 }, vec![0xA1, 0x42, 0x73]),
+            (Commands::YM2612Port0Write { register: 0x42, value: 0x73, chip_index: 1 }, vec![0xA2, 0x42, 0x73]),
+            (Commands::YM2151Write { register: 0x42, value: 0x73, chip_index: 1 }, vec![0xA4, 0x42, 0x73]),
+        ];
+
+        for (command, expected_bytes) in test_commands {
+            let result = command.clone().to_bytes();
+            assert!(result.is_ok(), "Failed to serialize command: {:?}", command);
+            assert_eq!(result.unwrap(), expected_bytes, "Serialization mismatch for command: {:?}", command);
+        }
+    }
+
+    #[test] 
+    fn test_dual_chip_ym_round_trip() {
+        // Test round-trip parsing and serialization for all YM commands
+        let test_data = vec![
+            // First chip commands
+            vec![0x51, 0x42, 0x73], // YM2413
+            vec![0x52, 0x42, 0x73], // YM2612Port0
+            vec![0x53, 0x42, 0x73], // YM2612Port1
+            vec![0x54, 0x42, 0x73], // YM2151
+            vec![0x55, 0x42, 0x73], // YM2203
+            vec![0x56, 0x42, 0x73], // YM2608Port0
+            vec![0x57, 0x42, 0x73], // YM2608Port1
+            vec![0x58, 0x42, 0x73], // YM2610Port0
+            vec![0x59, 0x42, 0x73], // YM2610Port1
+            vec![0x5A, 0x42, 0x73], // YM3812
+            vec![0x5B, 0x42, 0x73], // YM3526
+            vec![0x5C, 0x42, 0x73], // Y8950
+            vec![0x5D, 0x42, 0x73], // YMZ280B
+            vec![0x5E, 0x42, 0x73], // YMF262Port0
+            vec![0x5F, 0x42, 0x73], // YMF262Port1
+            
+            // Second chip commands
+            vec![0xA1, 0x42, 0x73], // YM2413
+            vec![0xA2, 0x42, 0x73], // YM2612Port0
+            vec![0xA3, 0x42, 0x73], // YM2612Port1
+            vec![0xA4, 0x42, 0x73], // YM2151
+            vec![0xA5, 0x42, 0x73], // YM2203
+            vec![0xA6, 0x42, 0x73], // YM2608Port0
+            vec![0xA7, 0x42, 0x73], // YM2608Port1
+            vec![0xA8, 0x42, 0x73], // YM2610Port0
+            vec![0xA9, 0x42, 0x73], // YM2610Port1
+            vec![0xAA, 0x42, 0x73], // YM3812
+            vec![0xAB, 0x42, 0x73], // YM3526
+            vec![0xAC, 0x42, 0x73], // Y8950
+            vec![0xAD, 0x42, 0x73], // YMZ280B
+            vec![0xAE, 0x42, 0x73], // YMF262Port0
+            vec![0xAF, 0x42, 0x73], // YMF262Port1
+        ];
+
+        for original_bytes in test_data {
+            let mut bytes = Bytes::from(original_bytes.clone());
+            
+            // Parse the command
+            let parsed_command = Commands::from_bytes(&mut bytes);
+            assert!(parsed_command.is_ok(), "Failed to parse bytes: {:?}", original_bytes);
+            
+            // Serialize the command back
+            let serialized_bytes = parsed_command.unwrap().to_bytes();
+            assert!(serialized_bytes.is_ok(), "Failed to serialize parsed command");
+            
+            // Verify round-trip integrity
+            assert_eq!(serialized_bytes.unwrap(), original_bytes, 
+                      "Round-trip failed for bytes: {:?}", original_bytes);
+        }
+    }
+
     use bytes::BytesMut;
 
     #[test]
@@ -2867,5 +4026,479 @@ mod tests {
             },
             _ => panic!("Expected DecompressionTable"),
         }
+    }
+
+    #[test]
+    fn test_dual_chip_method2_parsing_first_chip() {
+        // Test Method #2 dual chip support - first chip (bit 7 = 0)
+        let mut test_data = BytesMut::new();
+        
+        // AY8910Write first chip: register 0x07, value 0x38
+        test_data.put_u8(0xA0);
+        test_data.put_u8(0x07); // Register 0x07, bit 7 = 0 -> first chip
+        test_data.put_u8(0x38);
+        
+        // GameBoyDMGWrite first chip: register 0x40, value 0x80
+        test_data.put_u8(0xB3);
+        test_data.put_u8(0x40); // Register 0x40, bit 7 = 0 -> first chip  
+        test_data.put_u8(0x80);
+        
+        // NESAPUWrite first chip: register 0x15, value 0x0F
+        test_data.put_u8(0xB4);
+        test_data.put_u8(0x15); // Register 0x15, bit 7 = 0 -> first chip
+        test_data.put_u8(0x0F);
+        
+        let mut bytes = test_data.freeze();
+        
+        // Parse first command
+        let cmd1 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd1, Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 0 });
+        
+        // Parse second command
+        let cmd2 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd2, Commands::GameBoyDMGWrite { register: 0x40, value: 0x80, chip_index: 0 });
+        
+        // Parse third command
+        let cmd3 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd3, Commands::NESAPUWrite { register: 0x15, value: 0x0F, chip_index: 0 });
+    }
+
+    #[test]
+    fn test_dual_chip_method2_parsing_second_chip() {
+        // Test Method #2 dual chip support - second chip (bit 7 = 1)
+        let mut test_data = BytesMut::new();
+        
+        // AY8910Write second chip: register 0x07 with bit 7 set (0x87), value 0x38
+        test_data.put_u8(0xA0);
+        test_data.put_u8(0x87); // Register 0x07 | 0x80 -> second chip
+        test_data.put_u8(0x38);
+        
+        // GameBoyDMGWrite second chip: register 0x40 with bit 7 set (0xC0), value 0x80
+        test_data.put_u8(0xB3);
+        test_data.put_u8(0xC0); // Register 0x40 | 0x80 -> second chip
+        test_data.put_u8(0x80);
+        
+        // MultiPCMWrite second chip: register 0x10 with bit 7 set (0x90), value 0xFF
+        test_data.put_u8(0xB5);
+        test_data.put_u8(0x90); // Register 0x10 | 0x80 -> second chip
+        test_data.put_u8(0xFF);
+        
+        let mut bytes = test_data.freeze();
+        
+        // Parse first command
+        let cmd1 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd1, Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 1 });
+        
+        // Parse second command
+        let cmd2 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd2, Commands::GameBoyDMGWrite { register: 0x40, value: 0x80, chip_index: 1 });
+        
+        // Parse third command
+        let cmd3 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd3, Commands::MultiPCMWrite { register: 0x10, value: 0xFF, chip_index: 1 });
+    }
+
+    #[test] 
+    fn test_dual_chip_method2_serialization() {
+        // Test Method #2 dual chip serialization for both chips
+        
+        // First chip commands
+        let ay8910_chip1 = Commands::AY8910Write { register: 0x0E, value: 0x3F, chip_index: 0 };
+        let gameboy_chip1 = Commands::GameBoyDMGWrite { register: 0x26, value: 0x8F, chip_index: 0 };
+        
+        // Second chip commands  
+        let ay8910_chip2 = Commands::AY8910Write { register: 0x0E, value: 0x3F, chip_index: 1 };
+        let pokey_chip2 = Commands::PokeyWrite { register: 0x08, value: 0xA0, chip_index: 1 };
+        
+        // Serialize and check results
+        let bytes1 = ay8910_chip1.clone().to_bytes().unwrap();
+        assert_eq!(bytes1, vec![0xA0, 0x0E, 0x3F]); // Register 0x0E (bit 7 = 0)
+        
+        let bytes2 = gameboy_chip1.clone().to_bytes().unwrap();
+        assert_eq!(bytes2, vec![0xB3, 0x26, 0x8F]); // Register 0x26 (bit 7 = 0)
+        
+        let bytes3 = ay8910_chip2.clone().to_bytes().unwrap();
+        assert_eq!(bytes3, vec![0xA0, 0x8E, 0x3F]); // Register 0x0E | 0x80 = 0x8E
+        
+        let bytes4 = pokey_chip2.clone().to_bytes().unwrap();
+        assert_eq!(bytes4, vec![0xBB, 0x88, 0xA0]); // Register 0x08 | 0x80 = 0x88
+    }
+    
+    #[test]
+    fn test_dual_chip_method2_round_trip() {
+        // Test Method #2 dual chip round-trip (parse then serialize)
+        let test_commands = vec![
+            Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 0 },
+            Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 1 },
+            Commands::GameBoyDMGWrite { register: 0x40, value: 0x80, chip_index: 0 },
+            Commands::GameBoyDMGWrite { register: 0x40, value: 0x80, chip_index: 1 },
+            Commands::NESAPUWrite { register: 0x15, value: 0x0F, chip_index: 0 },
+            Commands::NESAPUWrite { register: 0x15, value: 0x0F, chip_index: 1 },
+            Commands::HuC6280Write { register: 0x02, value: 0x44, chip_index: 0 },
+            Commands::HuC6280Write { register: 0x02, value: 0x44, chip_index: 1 },
+            Commands::PokeyWrite { register: 0x08, value: 0xA0, chip_index: 0 },
+            Commands::PokeyWrite { register: 0x08, value: 0xA0, chip_index: 1 },
+        ];
+        
+        for cmd in test_commands {
+            // Serialize command to bytes
+            let serialized = cmd.clone().to_bytes().unwrap();
+            
+            // Parse bytes back to command
+            let mut bytes = Bytes::from(serialized);
+            let parsed = Commands::from_bytes(&mut bytes).unwrap();
+            
+            // Should be identical
+            assert_eq!(cmd, parsed);
+        }
+    }
+
+    #[test]
+    fn test_dac_stream_dual_chip_parsing() {
+        // Test DAC Stream dual chip support - chip_type bit 7 determines chip
+        let mut test_data = BytesMut::new();
+        
+        // DACStreamSetupControl first chip: stream_id 0x01, chip_type 0x02 (bit 7 = 0), port 0x00, command 0x01
+        test_data.put_u8(0x90);
+        test_data.put_u8(0x01); // stream_id
+        test_data.put_u8(0x02); // chip_type, bit 7 = 0 -> first chip
+        test_data.put_u8(0x00); // port
+        test_data.put_u8(0x01); // command
+        
+        // DACStreamSetupControl second chip: stream_id 0x02, chip_type 0x02 with bit 7 set (0x82), port 0x01, command 0x02
+        test_data.put_u8(0x90);
+        test_data.put_u8(0x02); // stream_id
+        test_data.put_u8(0x82); // chip_type 0x02 | 0x80 -> second chip
+        test_data.put_u8(0x01); // port
+        test_data.put_u8(0x02); // command
+        
+        let mut bytes = test_data.freeze();
+        
+        // Parse first command
+        let cmd1 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd1, Commands::DACStreamSetupControl { 
+            stream_id: 0x01, 
+            chip_type: 0x02, 
+            port: 0x00, 
+            command: 0x01, 
+            chip_index: 0 
+        });
+        
+        // Parse second command
+        let cmd2 = Commands::from_bytes(&mut bytes).unwrap();
+        assert_eq!(cmd2, Commands::DACStreamSetupControl { 
+            stream_id: 0x02, 
+            chip_type: 0x02, 
+            port: 0x01, 
+            command: 0x02, 
+            chip_index: 1 
+        });
+    }
+
+    #[test]
+    fn test_dac_stream_dual_chip_serialization() {
+        // Test DAC Stream dual chip serialization
+        
+        // First chip command
+        let dac_chip1 = Commands::DACStreamSetupControl { 
+            stream_id: 0x01, 
+            chip_type: 0x05, 
+            port: 0x00, 
+            command: 0x01, 
+            chip_index: 0 
+        };
+        
+        // Second chip command
+        let dac_chip2 = Commands::DACStreamSetupControl { 
+            stream_id: 0x02, 
+            chip_type: 0x05, 
+            port: 0x01, 
+            command: 0x02, 
+            chip_index: 1 
+        };
+        
+        // Serialize and check results
+        let bytes1 = dac_chip1.clone().to_bytes().unwrap();
+        assert_eq!(bytes1, vec![0x90, 0x01, 0x05, 0x00, 0x01]); // chip_type 0x05 (bit 7 = 0)
+        
+        let bytes2 = dac_chip2.clone().to_bytes().unwrap();
+        assert_eq!(bytes2, vec![0x90, 0x02, 0x85, 0x01, 0x02]); // chip_type 0x05 | 0x80 = 0x85
+    }
+
+    #[test]
+    fn test_dac_stream_dual_chip_round_trip() {
+        // Test DAC Stream dual chip round-trip (parse then serialize)
+        let test_commands = vec![
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, 
+                chip_type: 0x03, 
+                port: 0x00, 
+                command: 0x01, 
+                chip_index: 0 
+            },
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, 
+                chip_type: 0x03, 
+                port: 0x00, 
+                command: 0x01, 
+                chip_index: 1 
+            },
+        ];
+        
+        for cmd in test_commands {
+            // Serialize command to bytes
+            let serialized = cmd.clone().to_bytes().unwrap();
+            
+            // Parse bytes back to command
+            let mut bytes = Bytes::from(serialized);
+            let parsed = Commands::from_bytes(&mut bytes).unwrap();
+            
+            // Should be identical
+            assert_eq!(cmd, parsed);
+        }
+    }
+
+    #[test]
+    fn test_dac_stream_all_commands_serialization() {
+        // Test all DAC Stream commands serialization to ensure they all work
+        let test_commands = vec![
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, 
+                chip_type: 0x02, 
+                port: 0x00, 
+                command: 0x01, 
+                chip_index: 0 
+            },
+            Commands::DACStreamSetData { 
+                stream_id: 0x01, 
+                data_bank_id: 0x00, 
+                step_size: 0x01, 
+                step_base: 0x00 
+            },
+            Commands::DACStreamSetFrequency { 
+                stream_id: 0x01, 
+                frequency: 44100 
+            },
+            Commands::DACStreamStart { 
+                stream_id: 0x01, 
+                data_start_offset: 0x1000, 
+                length_mode: 0x00, 
+                data_length: 0x2000 
+            },
+            Commands::DACStreamStop { 
+                stream_id: 0x01 
+            },
+            Commands::DACStreamStartFast { 
+                stream_id: 0x01, 
+                block_id: 0x0001, 
+                flags: 0x00 
+            },
+        ];
+        
+        for cmd in test_commands {
+            // All commands should serialize without error
+            let result = cmd.clone().to_bytes();
+            assert!(result.is_ok(), "Failed to serialize DAC Stream command: {:?}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_comprehensive_dual_chip_integration() {
+        // Test all dual chip methods working together in a single VGM stream
+        let mut test_data = BytesMut::new();
+        
+        // Method #1: PSG dual chip (0x50 -> 0x30)
+        test_data.put_u8(0x50); // PSG first chip
+        test_data.put_u8(0x9F);
+        test_data.put_u8(0x30); // PSG second chip
+        test_data.put_u8(0x9F);
+        
+        // Method #1: YM dual chip (0x51 -> 0xA1)
+        test_data.put_u8(0x51); // YM2413 first chip
+        test_data.put_u8(0x30);
+        test_data.put_u8(0x14);
+        test_data.put_u8(0xA1); // YM2413 second chip
+        test_data.put_u8(0x30);
+        test_data.put_u8(0x14);
+        
+        // Method #2: Bit 7 checking (AY8910)
+        test_data.put_u8(0xA0); // AY8910 
+        test_data.put_u8(0x07); // Register 0x07, first chip
+        test_data.put_u8(0x38);
+        test_data.put_u8(0xA0); // AY8910
+        test_data.put_u8(0x87); // Register 0x07 | 0x80, second chip
+        test_data.put_u8(0x38);
+        
+        // DAC Stream dual chip
+        test_data.put_u8(0x90); // DAC Stream Setup
+        test_data.put_u8(0x01);
+        test_data.put_u8(0x02); // chip_type 0x02, first chip
+        test_data.put_u8(0x00);
+        test_data.put_u8(0x01);
+        test_data.put_u8(0x90); // DAC Stream Setup
+        test_data.put_u8(0x02);
+        test_data.put_u8(0x82); // chip_type 0x02 | 0x80, second chip
+        test_data.put_u8(0x01);
+        test_data.put_u8(0x02);
+        
+        // End of sound data
+        test_data.put_u8(0x66);
+        
+        let mut bytes = test_data.freeze();
+        
+        // Parse all commands
+        let mut commands = Vec::new();
+        while bytes.remaining() > 0 {
+            let cmd = Commands::from_bytes(&mut bytes).unwrap();
+            if matches!(cmd, Commands::EndOfSoundData) {
+                commands.push(cmd);
+                break;
+            }
+            commands.push(cmd);
+        }
+        
+        // Verify all commands were parsed correctly
+        assert_eq!(commands.len(), 9); // 8 chip commands + 1 end command
+        
+        // Verify specific commands
+        assert_eq!(commands[0], Commands::PSGWrite { value: 0x9F, chip_index: 0 });
+        assert_eq!(commands[1], Commands::PSGWrite { value: 0x9F, chip_index: 1 });
+        assert_eq!(commands[2], Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 0 });
+        assert_eq!(commands[3], Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 1 });
+        assert_eq!(commands[4], Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 0 });
+        assert_eq!(commands[5], Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 1 });
+        assert_eq!(commands[6], Commands::DACStreamSetupControl { 
+            stream_id: 0x01, chip_type: 0x02, port: 0x00, command: 0x01, chip_index: 0 
+        });
+        assert_eq!(commands[7], Commands::DACStreamSetupControl { 
+            stream_id: 0x02, chip_type: 0x02, port: 0x01, command: 0x02, chip_index: 1 
+        });
+        assert_eq!(commands[8], Commands::EndOfSoundData);
+    }
+
+    #[test]
+    fn test_dual_chip_serialization_round_trip_all_methods() {
+        // Test complete round-trip serialization for all dual chip methods
+        let test_commands = vec![
+            // Method #1: PSG 
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::PSGWrite { value: 0x9F, chip_index: 1 },
+            Commands::GameGearPSGStereo { value: 0xFF, chip_index: 0 },
+            Commands::GameGearPSGStereo { value: 0xFF, chip_index: 1 },
+            
+            // Method #1: YM family (test a few key ones)
+            Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 0 },
+            Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 1 },
+            Commands::YM2612Port0Write { register: 0x22, value: 0x00, chip_index: 0 },
+            Commands::YM2612Port0Write { register: 0x22, value: 0x00, chip_index: 1 },
+            
+            // Method #2: Bit 7 checking (test several)
+            Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 0 },
+            Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 1 },
+            Commands::GameBoyDMGWrite { register: 0x26, value: 0x8F, chip_index: 0 },
+            Commands::GameBoyDMGWrite { register: 0x26, value: 0x8F, chip_index: 1 },
+            Commands::NESAPUWrite { register: 0x15, value: 0x0F, chip_index: 0 },
+            Commands::NESAPUWrite { register: 0x15, value: 0x0F, chip_index: 1 },
+            Commands::HuC6280Write { register: 0x02, value: 0x44, chip_index: 0 },
+            Commands::HuC6280Write { register: 0x02, value: 0x44, chip_index: 1 },
+            
+            // DAC Stream dual chip
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, chip_type: 0x02, port: 0x00, command: 0x01, chip_index: 0 
+            },
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, chip_type: 0x02, port: 0x00, command: 0x01, chip_index: 1 
+            },
+        ];
+        
+        for cmd in test_commands {
+            // Serialize command to bytes
+            let serialized = cmd.clone().to_bytes().unwrap();
+            
+            // Parse bytes back to command
+            let mut bytes = Bytes::from(serialized);
+            let parsed = Commands::from_bytes(&mut bytes).unwrap();
+            
+            // Should be identical
+            assert_eq!(cmd, parsed, "Round-trip failed for command: {:?}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_dual_chip_backward_compatibility() {
+        // Test that existing single-chip commands still work (backward compatibility)
+        let single_chip_commands = vec![
+            // Test that chip_index: 0 produces the same output as original commands
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 0 },
+            Commands::YM2612Port0Write { register: 0x22, value: 0x00, chip_index: 0 },
+            Commands::AY8910Write { register: 0x07, value: 0x38, chip_index: 0 },
+            Commands::GameBoyDMGWrite { register: 0x26, value: 0x8F, chip_index: 0 },
+            Commands::DACStreamSetupControl { 
+                stream_id: 0x01, chip_type: 0x02, port: 0x00, command: 0x01, chip_index: 0 
+            },
+        ];
+        
+        for cmd in single_chip_commands {
+            // All commands with chip_index: 0 should serialize without error
+            let result = cmd.clone().to_bytes();
+            assert!(result.is_ok(), "Single chip command failed: {:?}", cmd);
+            
+            // Verify the opcodes are correct for first chip
+            let bytes = result.unwrap();
+            match cmd {
+                Commands::PSGWrite { .. } => assert_eq!(bytes[0], 0x50),
+                Commands::YM2413Write { .. } => assert_eq!(bytes[0], 0x51),
+                Commands::YM2612Port0Write { .. } => assert_eq!(bytes[0], 0x52),
+                Commands::AY8910Write { .. } => {
+                    assert_eq!(bytes[0], 0xA0);
+                    assert_eq!(bytes[1] & 0x80, 0); // Bit 7 should be 0
+                },
+                Commands::GameBoyDMGWrite { .. } => {
+                    assert_eq!(bytes[0], 0xB3);
+                    assert_eq!(bytes[1] & 0x80, 0); // Bit 7 should be 0
+                },
+                Commands::DACStreamSetupControl { .. } => {
+                    assert_eq!(bytes[0], 0x90);
+                    assert_eq!(bytes[2] & 0x80, 0); // chip_type bit 7 should be 0
+                },
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn test_dual_chip_mixed_parsing_methods() {
+        // Test that we can mix parsing methods (from_bytes, from_bytes_safe, from_bytes_with_config)
+        let mut test_data = BytesMut::new();
+        
+        // Add a dual chip command
+        test_data.put_u8(0xA1); // YM2413 second chip
+        test_data.put_u8(0x30);
+        test_data.put_u8(0x14);
+        
+        let bytes_copy1 = test_data.clone().freeze();
+        let bytes_copy2 = test_data.clone().freeze();
+        let bytes_copy3 = test_data.clone().freeze();
+        
+        // Test from_bytes
+        let mut bytes1 = bytes_copy1;
+        let cmd1 = Commands::from_bytes(&mut bytes1).unwrap();
+        
+        // Test from_bytes_safe
+        let mut bytes2 = bytes_copy2;
+        let cmd2 = Commands::from_bytes_safe(&mut bytes2).unwrap();
+        
+        // Test from_bytes_with_config
+        let mut bytes3 = bytes_copy3;
+        let config = crate::ParserConfig::default();
+        let mut tracker = crate::ResourceTracker::new();
+        let cmd3 = Commands::from_bytes_with_config(&mut bytes3, &config, &mut tracker).unwrap();
+        
+        // All should produce the same result
+        let expected = Commands::YM2413Write { register: 0x30, value: 0x14, chip_index: 1 };
+        assert_eq!(cmd1, expected);
+        assert_eq!(cmd2, expected);
+        assert_eq!(cmd3, expected);
     }
 }

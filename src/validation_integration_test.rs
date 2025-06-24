@@ -67,7 +67,7 @@ mod integration_tests {
         inconsistent_header.ym2612_clock = 0; // No clock configured
         
         let commands_with_ym2612 = vec![
-            Commands::YM2612Port0Write { register: 0x22, value: 0x00 }
+            Commands::YM2612Port0Write { register: 0x22, value: 0x00, chip_index: 0 }
         ];
         
         // Should fail consistency validation
@@ -174,8 +174,8 @@ mod integration_tests {
         };
         
         let commands = vec![
-            Commands::PSGWrite { value: 0x9F },
-            Commands::YM2612Port0Write { register: 0x22, value: 0x00 },
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::YM2612Port0Write { register: 0x22, value: 0x00, chip_index: 0 },
             Commands::Wait735Samples,
             Commands::EndOfSoundData,
         ];
