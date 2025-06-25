@@ -825,6 +825,14 @@ impl VgmParser for HeaderData {
         // get length of data for position calculation
         let len_data = data.len();
 
+        // Check minimum header size (64 bytes minimum for v1.00+)
+        if data.len() < 64 {
+            return Err(VgmError::TruncatedFile {
+                expected: 64,
+                actual: data.len(),
+            });
+        }
+
         // validate magic
         let magic = data.get_u32();
         let magic_bytes = magic.to_be_bytes();
@@ -1588,6 +1596,11 @@ impl VgmWriter for HeaderData {
             }
         }
         buffer.put(&self.ga20_clock.to_le_bytes()[..]);
+
+        // Ensure we pad to the full header size (vgm_data_offset + 0x34)
+        while buffer.len() < vgm_data_pos {
+            buffer.put(&[0x00][..]);
+        }
 
         Ok(())
     }

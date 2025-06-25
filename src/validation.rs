@@ -21,8 +21,8 @@ pub struct ValidationConfig {
 impl Default for ValidationConfig {
     fn default() -> Self {
         Self {
-            min_vgm_version: 0x00000100,           // Version 1.00
-            max_vgm_version: 0x00000171,           // Version 1.71 (latest known)
+            min_vgm_version: 100,                   // Version 1.00 (decimal)
+            max_vgm_version: 171,                   // Version 1.71 (decimal)
             max_file_size: 64 * 1024 * 1024,       // 64MB limit
             max_commands: 1_000_000,               // 1M commands limit
             max_data_block_size: 16 * 1024 * 1024, // 16MB data block limit
@@ -80,10 +80,10 @@ impl VersionValidator {
         Ok(())
     }
 
-    /// Convert BCD version to human-readable string
+    /// Convert decimal version to human-readable string
     fn version_to_string(version: u32) -> String {
-        let major = (version >> 8) & 0xFF;
-        let minor = version & 0xFF;
+        let major = version / 100;
+        let minor = version % 100;
         format!("{}.{:02}", major, minor)
     }
 }
@@ -433,14 +433,14 @@ mod tests {
     fn test_version_validator() {
         let config = ValidationConfig::default();
 
-        // Valid version
-        assert!(VersionValidator::validate_version(0x00000151, &config).is_ok());
+        // Valid version (1.51 in decimal)
+        assert!(VersionValidator::validate_version(151, &config).is_ok());
 
-        // Too old version
-        assert!(VersionValidator::validate_version(0x00000050, &config).is_err());
+        // Too old version (0.50 in decimal)
+        assert!(VersionValidator::validate_version(50, &config).is_err());
 
-        // Too new version
-        assert!(VersionValidator::validate_version(0x00000200, &config).is_err());
+        // Too new version (2.00 in decimal)
+        assert!(VersionValidator::validate_version(200, &config).is_err());
     }
 
     #[test]

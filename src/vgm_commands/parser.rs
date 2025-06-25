@@ -6,7 +6,7 @@
 use super::commands::Commands;
 use crate::errors::VgmResult;
 use crate::{ParserConfig, ResourceTracker};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 /// Parse VGM commands with default configuration (backward compatibility)
 pub fn parse_commands(data: &mut Bytes) -> Vec<Commands> {
@@ -17,7 +17,7 @@ pub fn parse_commands(data: &mut Bytes) -> Vec<Commands> {
     match parse_commands_with_config(data, &config, &mut tracker) {
         Ok(commands) => commands,
         Err(e) => {
-            println!("Warning: Command parsing failed with error: {}", e);
+            eprintln!("Warning: Command parsing failed with error: {}", e);
             vec![] // Return empty commands on error for backward compatibility
         },
     }
@@ -33,6 +33,11 @@ pub fn parse_commands_with_config(
     let _remaining_at_start = data.len();
 
     loop {
+        // Check if we have any data left
+        if data.is_empty() {
+            break;
+        }
+        
         // Check command count limit before parsing each command
         tracker.track_command(config)?;
 

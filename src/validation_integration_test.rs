@@ -9,11 +9,11 @@ mod integration_tests {
         // Test 1: Version validation (test directly)
         let config = ValidationConfig::default();
 
-        // Should fail version validation - version too old
-        assert!(VersionValidator::validate_version(0x00000050, &config).is_err());
+        // Should fail version validation - version too old (0.50 in decimal)
+        assert!(VersionValidator::validate_version(50, &config).is_err());
 
-        // Should pass version validation - valid version
-        assert!(VersionValidator::validate_version(0x00000151, &config).is_ok());
+        // Should pass version validation - valid version (1.51 in decimal)
+        assert!(VersionValidator::validate_version(151, &config).is_ok());
 
         let context = ValidationContext {
             file_size: 1000,
@@ -22,7 +22,7 @@ mod integration_tests {
 
         // Test 2: Valid header should pass
         let mut valid_header = HeaderData::default();
-        valid_header.version = 0x151; // Version 1.51
+        valid_header.version = 151; // Version 1.51 (decimal)
         valid_header.sn76489_clock = 3579545; // Valid PSG clock
         valid_header.rate = 44100; // Valid sample rate
 
@@ -30,7 +30,7 @@ mod integration_tests {
 
         // Test 3: Invalid offset should fail
         let mut invalid_offset_header = HeaderData::default();
-        invalid_offset_header.version = 0x151;
+        invalid_offset_header.version = 151; // Version 1.51 (decimal)
         invalid_offset_header.sn76489_clock = 3579545;
         invalid_offset_header.rate = 44100;
         invalid_offset_header.gd3_offset = 2000; // Beyond file size
@@ -156,7 +156,7 @@ mod integration_tests {
     fn test_comprehensive_vgm_validation() {
         // Create a complete VGM file structure for testing
         let header = HeaderData {
-            version: 0x151,
+            version: 151, // Version 1.51 (decimal)
             sn76489_clock: 3579545,
             ym2612_clock: 7670453,
             rate: 44100,

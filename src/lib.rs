@@ -123,8 +123,8 @@ impl VgmFile {
             data.get_u8();
         }
 
-        let metadata = VgmMetadata::from_bytes_with_config(data, &parser_config)?;
         let commands = parse_commands_with_config(data, &parser_config, &mut resource_tracker)?;
+        let metadata = VgmMetadata::from_bytes_with_config(data, &parser_config)?;
 
         Ok(VgmFile {
             header: header_data,
@@ -206,11 +206,12 @@ impl VgmParser for VgmFile {
             data.get_u8();
         }
 
+        let commands = parse_commands(data);
         let metadata = VgmMetadata::from_bytes(data)?;
 
         Ok(VgmFile {
             header: header_data,
-            commands: parse_commands(data),
+            commands,
             metadata,
         })
     }

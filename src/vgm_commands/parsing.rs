@@ -847,8 +847,18 @@ impl Commands {
                 temp_bytes.put_u8(command_val);
                 temp_bytes.put(bytes.clone());
                 let mut final_bytes = temp_bytes.freeze();
-
-                return Self::from_bytes(&mut final_bytes);
+                
+                // Parse the command
+                let initial_len = final_bytes.len();
+                let result = Self::from_bytes(&mut final_bytes)?;
+                
+                // Calculate how many bytes were consumed (excluding the command byte we already read)
+                let bytes_consumed = initial_len - final_bytes.len() - 1;
+                
+                // Advance the original buffer by the same amount
+                bytes.advance(bytes_consumed);
+                
+                return Ok(result);
             },
         };
 
