@@ -31,7 +31,7 @@ fn main() {
             eprintln!("Error category: {}", e.category());
             eprintln!("Suggested action: {}", e.suggested_action());
             return;
-        }
+        },
     };
 
     println!("Parsed successfully!");
@@ -62,7 +62,7 @@ fn main() {
             eprintln!("Error code: {}", e.code());
             eprintln!("Suggested action: {}", e.suggested_action());
             return;
-        }
+        },
     };
 
     let binary_path = format!("./generated/gen_{}.bin", input_file);
@@ -85,11 +85,15 @@ fn main() {
 
     for cmd in &vgm_file.commands {
         match cmd {
-            Commands::YM2608Port0Write { register, value: _, .. } => {
+            Commands::YM2608Port0Write {
+                register, value: _, ..
+            } => {
                 ym2608_commands += 1;
                 *register_tracker.entry(*register).or_insert(0) += 1;
             },
-            Commands::YM2608Port1Write { register, value: _, .. } => {
+            Commands::YM2608Port1Write {
+                register, value: _, ..
+            } => {
                 ym2608_commands += 1;
                 *register_tracker.entry(*register).or_insert(0) += 1;
             },

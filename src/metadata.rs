@@ -33,10 +33,13 @@ pub struct VgmMetadata {
 
 impl VgmMetadata {
     /// Parse VGM metadata with resource limits and allocation tracking
-    pub fn from_bytes_with_config(data: &mut Bytes, config: &crate::ParserConfig) -> VgmResult<Self> {
+    pub fn from_bytes_with_config(
+        data: &mut Bytes,
+        config: &crate::ParserConfig,
+    ) -> VgmResult<Self> {
         // Check metadata size before processing
         config.check_metadata_size(data.len())?;
-        
+
         // Security: Validate buffer has enough data for version field
         if data.len() < 8 {
             return Err(VgmError::BufferUnderflow {
@@ -48,7 +51,8 @@ impl VgmMetadata {
         let version = data.slice(4..8);
         let ver: &[u8] = &[0x0, 0x1, 0x0, 0x0];
         if version != ver {
-            let actual_version = u32::from_le_bytes([version[0], version[1], version[2], version[3]]);
+            let actual_version =
+                u32::from_le_bytes([version[0], version[1], version[2], version[3]]);
             return Err(VgmError::UnsupportedGd3Version {
                 version: actual_version,
                 supported_versions: vec![0x00000100], // Version 1.0
@@ -64,7 +68,7 @@ impl VgmMetadata {
             });
         }
         let data_length = data.slice(8..12).get_u32_le();
-        
+
         // Security: Validate data length is reasonable and fits within metadata size limit
         if data_length as usize > config.max_metadata_size {
             return Err(VgmError::DataSizeExceedsLimit {
@@ -82,7 +86,7 @@ impl VgmMetadata {
                 available: data.len().saturating_sub(12),
             });
         }
-        
+
         // Security: Check UTF-16 data size before allocation
         let utf16_data_size = data.len() - 12;
         if utf16_data_size % 2 != 0 {
@@ -91,7 +95,7 @@ impl VgmMetadata {
                 details: "UTF-16 data must have even byte count".to_string(),
             });
         }
-        
+
         let expected_u16_count = utf16_data_size / 2;
         if expected_u16_count * 2 > config.max_metadata_size {
             return Err(VgmError::DataSizeExceedsLimit {
@@ -100,7 +104,7 @@ impl VgmMetadata {
                 limit: config.max_metadata_size,
             });
         }
-        
+
         // Convert bytes to Vec<u16> with size tracking
         let data: Vec<u16> = data
             .slice(12..)
@@ -113,7 +117,7 @@ impl VgmMetadata {
         let mut temp: Vec<u16> = Vec::new();
         let mut acc: Vec<Vec<u16>> = Vec::new();
         let mut total_chars = 0usize;
-        
+
         for elem in data {
             if elem == 0x0000 {
                 acc.push(temp);
@@ -143,7 +147,7 @@ impl VgmMetadata {
                     limit: config.max_metadata_size / 4,
                 });
             }
-            
+
             String::from_utf16(data).map_err(|e| VgmError::InvalidUtf16Encoding {
                 field: field_name.to_string(),
                 details: e.to_string(),
@@ -196,7 +200,8 @@ impl VgmParser for VgmMetadata {
         let version = data.slice(4..8);
         let ver: &[u8] = &[0x0, 0x1, 0x0, 0x0];
         if version != ver {
-            let actual_version = u32::from_le_bytes([version[0], version[1], version[2], version[3]]);
+            let actual_version =
+                u32::from_le_bytes([version[0], version[1], version[2], version[3]]);
             return Err(VgmError::UnsupportedGd3Version {
                 version: actual_version,
                 supported_versions: vec![0x00000100], // Version 1.0
@@ -221,7 +226,7 @@ impl VgmParser for VgmMetadata {
                 available: data.len().saturating_sub(12),
             });
         }
-        
+
         // convert bytes to Vec<u16>
         let data: Vec<u16> = data
             .slice(12..)
@@ -340,100 +345,154 @@ impl VgmWriter for VgmMetadata {
         }
         let loc = &mut buffer[index_length..(index_length + 4)];
         loc.copy_from_slice(&data_length.to_le_bytes()[..]);
-        
+
         Ok(())
     }
 }
 
 // Validation implementation for VgmMetadata
-use crate::validation::{VgmValidate, ValidationContext};
+use crate::validation::{ValidationContext, VgmValidate};
 
 impl VgmValidate for VgmMetadata {
     fn validate(&self, _context: &ValidationContext) -> VgmResult<()> {
         // Validate string lengths are reasonable
         const MAX_STRING_LENGTH: usize = 1024;
-        
+
         if self.english_data.track.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "english_track".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.english_data.track.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.english_data.track.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.english_data.game.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "english_game".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.english_data.game.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.english_data.game.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.english_data.system.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "english_system".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.english_data.system.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.english_data.system.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.english_data.author.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "english_author".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.english_data.author.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.english_data.author.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.japanese_data.track.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "japanese_track".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.japanese_data.track.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.japanese_data.track.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.japanese_data.game.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "japanese_game".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.japanese_data.game.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.japanese_data.game.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.japanese_data.system.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "japanese_system".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.japanese_data.system.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.japanese_data.system.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.japanese_data.author.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "japanese_author".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.japanese_data.author.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.japanese_data.author.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.date_release.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "date_release".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.date_release.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.date_release.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.name_vgm_creator.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "name_vgm_creator".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.name_vgm_creator.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.name_vgm_creator.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         if self.notes.len() > MAX_STRING_LENGTH {
             return Err(VgmError::ValidationFailed {
                 field: "notes".to_string(),
-                reason: format!("String length {} exceeds maximum {}", self.notes.len(), MAX_STRING_LENGTH),
+                reason: format!(
+                    "String length {} exceeds maximum {}",
+                    self.notes.len(),
+                    MAX_STRING_LENGTH
+                ),
             });
         }
-        
+
         // Validate strings don't contain null bytes (except terminator)
-        for field_name in ["english_track", "english_game", "english_system", "english_author",
-                          "japanese_track", "japanese_game", "japanese_system", "japanese_author",
-                          "date_release", "name_vgm_creator", "notes"] {
+        for field_name in [
+            "english_track",
+            "english_game",
+            "english_system",
+            "english_author",
+            "japanese_track",
+            "japanese_game",
+            "japanese_system",
+            "japanese_author",
+            "date_release",
+            "name_vgm_creator",
+            "notes",
+        ] {
             let text = match field_name {
                 "english_track" => &self.english_data.track,
                 "english_game" => &self.english_data.game,
@@ -448,7 +507,7 @@ impl VgmValidate for VgmMetadata {
                 "notes" => &self.notes,
                 _ => unreachable!(),
             };
-            
+
             if text.contains('\0') {
                 return Err(VgmError::ValidationFailed {
                     field: field_name.to_string(),
@@ -456,7 +515,7 @@ impl VgmValidate for VgmMetadata {
                 });
             }
         }
-        
+
         Ok(())
     }
 }

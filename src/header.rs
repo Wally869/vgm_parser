@@ -134,19 +134,27 @@ pub struct HeaderData {
 
 impl HeaderData {
     /// Parse VGM header with resource limits and allocation tracking
-    pub fn from_bytes_with_config(data: &mut Bytes, config: &crate::ParserConfig, tracker: &mut crate::ResourceTracker) -> VgmResult<Self> {
+    pub fn from_bytes_with_config(
+        data: &mut Bytes,
+        config: &crate::ParserConfig,
+        tracker: &mut crate::ResourceTracker,
+    ) -> VgmResult<Self> {
         // Enter parsing context for depth tracking
         tracker.enter_parsing_context(config)?;
-        
+
         let result = Self::from_bytes_internal_with_config(data, config, tracker);
-        
+
         // Exit parsing context regardless of success/failure
         tracker.exit_parsing_context();
-        
+
         result
     }
-    
-    fn from_bytes_internal_with_config(data: &mut Bytes, config: &crate::ParserConfig, _tracker: &mut crate::ResourceTracker) -> VgmResult<Self> {
+
+    fn from_bytes_internal_with_config(
+        data: &mut Bytes,
+        config: &crate::ParserConfig,
+        _tracker: &mut crate::ResourceTracker,
+    ) -> VgmResult<Self> {
         let mut header = HeaderData::default();
         // get length of data for position calculation
         let len_data = data.len();
@@ -157,10 +165,10 @@ impl HeaderData {
         if magic_bytes != *b"Vgm " {
             let expected = String::from_utf8_lossy(b"Vgm ").to_string();
             let found = String::from_utf8_lossy(&magic_bytes).to_string();
-            return Err(VgmError::InvalidMagicBytes { 
-                expected, 
-                found, 
-                offset: len_data - data.remaining() - 4 
+            return Err(VgmError::InvalidMagicBytes {
+                expected,
+                found,
+                offset: len_data - data.remaining() - 4,
             });
         }
         header.end_of_file_offset = data.get_u32_le();
@@ -189,16 +197,18 @@ impl HeaderData {
         header.spcm_interface = data.get_u32_le();
 
         // Security: Prevent integer overflow in VGM data position calculation
-        let pos_start_vgm = header.vgm_data_offset
-            .checked_add(0x34)
-            .ok_or(VgmError::IntegerOverflow {
-                operation: "VGM data position calculation".to_string(),
-                details: format!("vgm_data_offset {} + 0x34", header.vgm_data_offset),
-            })?;
-        
+        let pos_start_vgm =
+            header
+                .vgm_data_offset
+                .checked_add(0x34)
+                .ok_or(VgmError::IntegerOverflow {
+                    operation: "VGM data position calculation".to_string(),
+                    details: format!("vgm_data_offset {} + 0x34", header.vgm_data_offset),
+                })?;
+
         // Security: Convert pos_start_vgm to usize safely
-        let pos_start_vgm_usize = usize::try_from(pos_start_vgm)
-            .map_err(|_| VgmError::IntegerOverflow {
+        let pos_start_vgm_usize =
+            usize::try_from(pos_start_vgm).map_err(|_| VgmError::IntegerOverflow {
                 operation: "VGM position usize conversion".to_string(),
                 details: format!("pos_start_vgm {} cannot fit in usize", pos_start_vgm),
             })?;
@@ -394,13 +404,19 @@ impl HeaderData {
             None
         } else {
             // Security: Prevent integer overflow in extra header position calculation
-            Some(header.extra_header_offset
-                .checked_add(0xBC)
-                .and_then(|v| usize::try_from(v).ok())
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Extra header position calculation".to_string(),
-                    details: format!("extra_header_offset {} + 0xBC", header.extra_header_offset),
-                })?)
+            Some(
+                header
+                    .extra_header_offset
+                    .checked_add(0xBC)
+                    .and_then(|v| usize::try_from(v).ok())
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Extra header position calculation".to_string(),
+                        details: format!(
+                            "extra_header_offset {} + 0xBC",
+                            header.extra_header_offset
+                        ),
+                    })?,
+            )
         };
 
         // 0xC0
@@ -531,8 +547,13 @@ impl HeaderData {
 
         Ok(header)
     }
-    
-    fn parse_extra_header_with_config(&mut self, data: &mut Bytes, extra_header_pos: usize, config: &crate::ParserConfig) -> VgmResult<()> {
+
+    fn parse_extra_header_with_config(
+        &mut self,
+        data: &mut Bytes,
+        extra_header_pos: usize,
+        config: &crate::ParserConfig,
+    ) -> VgmResult<()> {
         // use this to track pos in the extra header?
         let remaining_bytes = data.remaining();
 
@@ -547,26 +568,36 @@ impl HeaderData {
             None
         } else {
             // Security: Prevent integer overflow in chip clock position calculation
-            Some(extra_header_pos
-                .checked_add(4)
-                .and_then(|v| v.checked_add(extra_header.chip_clock_offset as usize))
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Chip clock position calculation".to_string(),
-                    details: format!("extra_header_pos {} + 4 + chip_clock_offset {}", extra_header_pos, extra_header.chip_clock_offset),
-                })?)
+            Some(
+                extra_header_pos
+                    .checked_add(4)
+                    .and_then(|v| v.checked_add(extra_header.chip_clock_offset as usize))
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Chip clock position calculation".to_string(),
+                        details: format!(
+                            "extra_header_pos {} + 4 + chip_clock_offset {}",
+                            extra_header_pos, extra_header.chip_clock_offset
+                        ),
+                    })?,
+            )
         };
 
         let chip_vol_pos = if extra_header.chip_vol_offset == 0 {
             None
         } else {
             // Security: Prevent integer overflow in chip volume position calculation
-            Some(extra_header_pos
-                .checked_add(8)
-                .and_then(|v| v.checked_add(extra_header.chip_vol_offset as usize))
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Chip volume position calculation".to_string(),
-                    details: format!("extra_header_pos {} + 8 + chip_vol_offset {}", extra_header_pos, extra_header.chip_vol_offset),
-                })?)
+            Some(
+                extra_header_pos
+                    .checked_add(8)
+                    .and_then(|v| v.checked_add(extra_header.chip_vol_offset as usize))
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Chip volume position calculation".to_string(),
+                        details: format!(
+                            "extra_header_pos {} + 8 + chip_vol_offset {}",
+                            extra_header_pos, extra_header.chip_vol_offset
+                        ),
+                    })?,
+            )
         };
 
         let mut chip_clock_entries: Vec<ChipClockEntry> = vec![];
@@ -578,10 +609,10 @@ impl HeaderData {
             if let Some(chip_clock_pos) = chip_clock_pos {
                 if chip_clock_pos == curr_pos {
                     let nb_entries = data.get_u8();
-                    
+
                     // Security: Check chip clock entry count against config limits
                     config.check_chip_entries(nb_entries, 0)?;
-                    
+
                     for _i in 0..nb_entries {
                         let curr_entry = ChipClockEntry {
                             chip_id: data.get_u8(),
@@ -596,10 +627,10 @@ impl HeaderData {
             if let Some(chip_vol_pos) = chip_vol_pos {
                 if chip_vol_pos == curr_pos {
                     let nb_entries = data.get_u8();
-                    
-                    // Security: Check chip volume entry count against config limits  
+
+                    // Security: Check chip volume entry count against config limits
                     config.check_chip_entries(0, nb_entries)?;
-                    
+
                     for _i in 0..nb_entries {
                         let curr_entry = ChipVolumeEntry {
                             chip_id: data.get_u8(),
@@ -635,26 +666,36 @@ impl HeaderData {
             None
         } else {
             // Security: Prevent integer overflow in chip clock position calculation
-            Some(extra_header_pos
-                .checked_add(4)
-                .and_then(|v| v.checked_add(extra_header.chip_clock_offset as usize))
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Chip clock position calculation".to_string(),
-                    details: format!("extra_header_pos {} + 4 + chip_clock_offset {}", extra_header_pos, extra_header.chip_clock_offset),
-                })?)
+            Some(
+                extra_header_pos
+                    .checked_add(4)
+                    .and_then(|v| v.checked_add(extra_header.chip_clock_offset as usize))
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Chip clock position calculation".to_string(),
+                        details: format!(
+                            "extra_header_pos {} + 4 + chip_clock_offset {}",
+                            extra_header_pos, extra_header.chip_clock_offset
+                        ),
+                    })?,
+            )
         };
 
         let chip_vol_pos = if extra_header.chip_vol_offset == 0 {
             None
         } else {
             // Security: Prevent integer overflow in chip volume position calculation
-            Some(extra_header_pos
-                .checked_add(8)
-                .and_then(|v| v.checked_add(extra_header.chip_vol_offset as usize))
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Chip volume position calculation".to_string(),
-                    details: format!("extra_header_pos {} + 8 + chip_vol_offset {}", extra_header_pos, extra_header.chip_vol_offset),
-                })?)
+            Some(
+                extra_header_pos
+                    .checked_add(8)
+                    .and_then(|v| v.checked_add(extra_header.chip_vol_offset as usize))
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Chip volume position calculation".to_string(),
+                        details: format!(
+                            "extra_header_pos {} + 8 + chip_vol_offset {}",
+                            extra_header_pos, extra_header.chip_vol_offset
+                        ),
+                    })?,
+            )
         };
 
         let mut chip_clock_entries: Vec<ChipClockEntry> = vec![];
@@ -790,10 +831,10 @@ impl VgmParser for HeaderData {
         if magic_bytes != *b"Vgm " {
             let expected = String::from_utf8_lossy(b"Vgm ").to_string();
             let found = String::from_utf8_lossy(&magic_bytes).to_string();
-            return Err(VgmError::InvalidMagicBytes { 
-                expected, 
-                found, 
-                offset: len_data - data.remaining() - 4 
+            return Err(VgmError::InvalidMagicBytes {
+                expected,
+                found,
+                offset: len_data - data.remaining() - 4,
             });
         }
         header.end_of_file_offset = data.get_u32_le();
@@ -822,16 +863,18 @@ impl VgmParser for HeaderData {
         header.spcm_interface = data.get_u32_le();
 
         // Security: Prevent integer overflow in VGM data position calculation
-        let pos_start_vgm = header.vgm_data_offset
-            .checked_add(0x34)
-            .ok_or(VgmError::IntegerOverflow {
-                operation: "VGM data position calculation".to_string(),
-                details: format!("vgm_data_offset {} + 0x34", header.vgm_data_offset),
-            })?;
-        
+        let pos_start_vgm =
+            header
+                .vgm_data_offset
+                .checked_add(0x34)
+                .ok_or(VgmError::IntegerOverflow {
+                    operation: "VGM data position calculation".to_string(),
+                    details: format!("vgm_data_offset {} + 0x34", header.vgm_data_offset),
+                })?;
+
         // Security: Convert pos_start_vgm to usize safely
-        let pos_start_vgm_usize = usize::try_from(pos_start_vgm)
-            .map_err(|_| VgmError::IntegerOverflow {
+        let pos_start_vgm_usize =
+            usize::try_from(pos_start_vgm).map_err(|_| VgmError::IntegerOverflow {
                 operation: "VGM position usize conversion".to_string(),
                 details: format!("pos_start_vgm {} cannot fit in usize", pos_start_vgm),
             })?;
@@ -1027,13 +1070,19 @@ impl VgmParser for HeaderData {
             None
         } else {
             // Security: Prevent integer overflow in extra header position calculation
-            Some(header.extra_header_offset
-                .checked_add(0xBC)
-                .and_then(|v| usize::try_from(v).ok())
-                .ok_or(VgmError::IntegerOverflow {
-                    operation: "Extra header position calculation".to_string(),
-                    details: format!("extra_header_offset {} + 0xBC", header.extra_header_offset),
-                })?)
+            Some(
+                header
+                    .extra_header_offset
+                    .checked_add(0xBC)
+                    .and_then(|v| usize::try_from(v).ok())
+                    .ok_or(VgmError::IntegerOverflow {
+                        operation: "Extra header position calculation".to_string(),
+                        details: format!(
+                            "extra_header_offset {} + 0xBC",
+                            header.extra_header_offset
+                        ),
+                    })?,
+            )
         };
 
         // 0xC0
@@ -1539,50 +1588,70 @@ impl VgmWriter for HeaderData {
             }
         }
         buffer.put(&self.ga20_clock.to_le_bytes()[..]);
-        
+
         Ok(())
     }
 }
 
 // Validation implementation for HeaderData
-use crate::validation::{VgmValidate, ValidationContext, ChipValidator, OffsetValidator};
+use crate::validation::{ChipValidator, OffsetValidator, ValidationContext, VgmValidate};
 
 impl VgmValidate for HeaderData {
     fn validate(&self, context: &ValidationContext) -> crate::errors::VgmResult<()> {
         // Validate chip clocks
         ChipValidator::validate_chip_clocks(self)?;
-        
+
         // Validate chip volumes
         ChipValidator::validate_chip_volumes(self)?;
-        
+
         // Validate offsets against file size
         if self.gd3_offset > 0 {
-            OffsetValidator::validate_offset(self.gd3_offset + 0x14, context.file_size, "gd3_offset")?;
+            OffsetValidator::validate_offset(
+                self.gd3_offset + 0x14,
+                context.file_size,
+                "gd3_offset",
+            )?;
         }
-        
+
         if self.vgm_data_offset > 0 {
-            OffsetValidator::validate_offset(self.vgm_data_offset + 0x34, context.file_size, "vgm_data_offset")?;
+            OffsetValidator::validate_offset(
+                self.vgm_data_offset + 0x34,
+                context.file_size,
+                "vgm_data_offset",
+            )?;
         }
-        
+
         if self.loop_offset > 0 {
-            OffsetValidator::validate_offset(self.loop_offset + 0x1C, context.file_size, "loop_offset")?;
+            OffsetValidator::validate_offset(
+                self.loop_offset + 0x1C,
+                context.file_size,
+                "loop_offset",
+            )?;
         }
-        
+
         if self.extra_header_offset > 0 {
-            OffsetValidator::validate_offset(self.extra_header_offset + 0xBC, context.file_size, "extra_header_offset")?;
+            OffsetValidator::validate_offset(
+                self.extra_header_offset + 0xBC,
+                context.file_size,
+                "extra_header_offset",
+            )?;
         }
-        
+
         // Validate sample counts are reasonable
         if self.total_nb_samples > 0 && self.rate > 0 {
             let duration_seconds = self.total_nb_samples as f64 / self.rate as f64;
-            if duration_seconds > 3600.0 { // More than 1 hour
+            if duration_seconds > 3600.0 {
+                // More than 1 hour
                 return Err(crate::errors::VgmError::ValidationFailed {
                     field: "total_nb_samples".to_string(),
-                    reason: format!("Duration {:.1} seconds exceeds reasonable limit", duration_seconds),
+                    reason: format!(
+                        "Duration {:.1} seconds exceeds reasonable limit",
+                        duration_seconds
+                    ),
                 });
             }
         }
-        
+
         // Validate loop data consistency
         if self.loop_offset > 0 && self.loop_nb_samples == 0 {
             return Err(crate::errors::VgmError::InconsistentData {
@@ -1590,15 +1659,18 @@ impl VgmValidate for HeaderData {
                 reason: "Loop offset specified but loop sample count is zero".to_string(),
             });
         }
-        
+
         // Validate rate is reasonable
         if self.rate > 0 && (self.rate < 8000 || self.rate > 192000) {
             return Err(crate::errors::VgmError::ValidationFailed {
                 field: "rate".to_string(),
-                reason: format!("Sample rate {} Hz outside valid range 8000-192000 Hz", self.rate),
+                reason: format!(
+                    "Sample rate {} Hz outside valid range 8000-192000 Hz",
+                    self.rate
+                ),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -1638,21 +1710,27 @@ mod tests {
     fn header_170() {
         // Use project-relative paths
         let filename = project_path("vgm_files/Into Battle.vgm");
-        
+
         // Skip test if file doesn't exist
         if !filename.exists() {
-            println!("Skipping header_170 test - test VGM file not found at {:?}", filename);
+            println!(
+                "Skipping header_170 test - test VGM file not found at {:?}",
+                filename
+            );
             return;
         }
-        
+
         let data = match fs::read(&filename) {
             Ok(data) => data,
             Err(e) => {
-                println!("Skipping header_170 test - failed to read file {:?}: {}", filename, e);
+                println!(
+                    "Skipping header_170 test - failed to read file {:?}: {}",
+                    filename, e
+                );
                 return;
-            }
+            },
         };
-        
+
         let mut mem = Bytes::from(data.clone());
 
         let header = match HeaderData::from_bytes(&mut mem) {
@@ -1660,7 +1738,7 @@ mod tests {
             Err(e) => {
                 println!("Skipping header_170 test - failed to parse header: {}", e);
                 return;
-            }
+            },
         };
         println!("clock: {}", header.ym2608_clock);
 
@@ -1668,15 +1746,21 @@ mod tests {
         match header.to_bytes(&mut out_buffer) {
             Ok(()) => {},
             Err(e) => {
-                println!("Skipping header_170 test - failed to serialize header: {}", e);
+                println!(
+                    "Skipping header_170 test - failed to serialize header: {}",
+                    e
+                );
                 return;
-            }
+            },
         };
 
         // Ensure generated directory exists before writing
         let generated_dir = project_path("generated");
         if let Err(e) = fs::create_dir_all(&generated_dir) {
-            println!("Warning: Could not create generated directory {:?}: {}", generated_dir, e);
+            println!(
+                "Warning: Could not create generated directory {:?}: {}",
+                generated_dir, e
+            );
             return;
         }
 
@@ -1685,17 +1769,17 @@ mod tests {
         if let Err(e) = fs::write(&bin_path, &out_buffer) {
             println!("Warning: Could not write binary file {:?}: {}", bin_path, e);
         }
-        
+
         let json_path = project_path("generated/Into Battle.json");
         match serde_json::to_string(&header) {
             Ok(json_str) => {
                 if let Err(e) = fs::write(&json_path, json_str) {
                     println!("Warning: Could not write JSON file {:?}: {}", json_path, e);
                 }
-            }
+            },
             Err(e) => {
                 println!("Warning: Could not serialize header to JSON: {}", e);
-            }
+            },
         }
     }
 }

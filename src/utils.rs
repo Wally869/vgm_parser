@@ -1,7 +1,7 @@
+use crate::errors::{VgmError, VgmResult};
 use bytes::{BufMut, BytesMut};
 use flate2::read::GzDecoder;
 use std::io::Read;
-use crate::errors::{VgmError, VgmResult};
 
 /// Gzip magic bytes (RFC 1952)
 pub const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
@@ -78,13 +78,13 @@ pub fn decompress_gzip(compressed_data: &[u8]) -> VgmResult<Vec<u8>> {
 
     let mut decoder = GzDecoder::new(compressed_data);
     let mut decompressed = Vec::new();
-    
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        VgmError::InvalidDataFormat {
+
+    decoder
+        .read_to_end(&mut decompressed)
+        .map_err(|e| VgmError::InvalidDataFormat {
             field: "gzip_decompression".to_string(),
             details: format!("Failed to decompress gzip data: {}", e),
-        }
-    })?;
+        })?;
 
     Ok(decompressed)
 }
@@ -96,11 +96,11 @@ pub fn detect_and_decompress(data: &[u8]) -> VgmResult<Vec<u8>> {
     if is_vgm(data) {
         return Ok(data.to_vec());
     }
-    
+
     // Check if it's gzipped
     if is_gzipped(data) {
         let decompressed = decompress_gzip(data)?;
-        
+
         // Verify the decompressed data is a valid VGM file
         if !is_vgm(&decompressed) {
             return Err(VgmError::InvalidDataFormat {
@@ -108,10 +108,10 @@ pub fn detect_and_decompress(data: &[u8]) -> VgmResult<Vec<u8>> {
                 details: "Decompressed data does not contain valid VGM magic bytes".to_string(),
             });
         }
-        
+
         return Ok(decompressed);
     }
-    
+
     // If neither VGM nor gzip, it's an unknown format
     Err(VgmError::InvalidDataFormat {
         field: "file_format".to_string(),
@@ -121,10 +121,10 @@ pub fn detect_and_decompress(data: &[u8]) -> VgmResult<Vec<u8>> {
 
 #[cfg(test)]
 mod test_utils {
+    use super::*;
+    use crate::utils::decimal_to_bcd;
     use flate2::{write::GzEncoder, Compression};
     use std::io::Write;
-    use crate::utils::decimal_to_bcd;
-    use super::*;
 
     #[test]
     fn bcd_cycle() {
@@ -219,7 +219,7 @@ mod test_utils {
         let invalid_data = b"INVALID_DATA_FORMAT";
         let result = detect_and_decompress(invalid_data);
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             VgmError::InvalidDataFormat { field, .. } => {
                 assert_eq!(field, "file_format");
@@ -233,7 +233,7 @@ mod test_utils {
         let invalid_gzip = b"NOT_GZIP_DATA";
         let result = decompress_gzip(invalid_gzip);
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             VgmError::InvalidDataFormat { field, .. } => {
                 assert_eq!(field, "gzip_header");
@@ -253,7 +253,7 @@ mod test_utils {
         // Should fail because decompressed data is not VGM
         let result = detect_and_decompress(&compressed);
         assert!(result.is_err());
-        
+
         match result.unwrap_err() {
             VgmError::InvalidDataFormat { field, .. } => {
                 assert_eq!(field, "decompressed_vgm");
@@ -267,11 +267,11 @@ mod test_utils {
         // Test empty data
         assert!(!is_vgm(&[]));
         assert!(!is_gzipped(&[]));
-        
+
         // Test too short data
         assert!(!is_vgm(&[0x56, 0x67])); // Only 2 bytes of VGM magic
         assert!(!is_gzipped(&[0x1f])); // Only 1 byte of gzip magic
-        
+
         // Test partial magic matches
         assert!(!is_vgm(b"Vgx ")); // Wrong 3rd byte
         assert!(!is_gzipped(&[0x1f, 0x8c])); // Wrong 2nd byte
