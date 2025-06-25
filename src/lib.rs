@@ -54,29 +54,32 @@ impl VgmFile {
             },
         })?;
 
-        // Check file size
-        if file_data.len() < 64 {
+        // Detect format and decompress if necessary (supports both .vgm and .vgz)
+        let vgm_data = crate::utils::detect_and_decompress(&file_data)?;
+        
+        // Check decompressed VGM file size
+        if vgm_data.len() < 64 {
             return Err(VgmError::FileTooSmall {
                 path: path.to_string(),
-                size: file_data.len(),
+                size: vgm_data.len(),
             });
         }
         
-        // Check file size against validation config limits
-        if file_data.len() > validation_config.max_file_size {
+        // Check decompressed file size against validation config limits
+        if vgm_data.len() > validation_config.max_file_size {
             return Err(VgmError::DataSizeExceedsLimit {
-                field: "file_size".to_string(),
-                size: file_data.len(),
+                field: "decompressed_file_size".to_string(),
+                size: vgm_data.len(),
                 limit: validation_config.max_file_size,
             });
         }
 
-        let mut data = Bytes::from(file_data.clone());
+        let mut data = Bytes::from(vgm_data.clone());
         let vgm_file = VgmFile::from_bytes_with_config(&mut data, parser_config)?;
         
-        // Perform validation
+        // Perform validation using decompressed data size
         let validator = VgmValidator::new(validation_config);
-        validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, file_data.len())?;
+        validator.validate_vgm_file(&vgm_file.header, &vgm_file.commands, &vgm_file.metadata, vgm_data.len())?;
         
         Ok(vgm_file)
     }

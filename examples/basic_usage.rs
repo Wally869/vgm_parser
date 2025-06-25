@@ -85,11 +85,11 @@ fn main() {
 
     for cmd in &vgm_file.commands {
         match cmd {
-            Commands::YM2608Port0Write { register, value: _ } => {
+            Commands::YM2608Port0Write { register, value: _, .. } => {
                 ym2608_commands += 1;
                 *register_tracker.entry(*register).or_insert(0) += 1;
             },
-            Commands::YM2608Port1Write { register, value: _ } => {
+            Commands::YM2608Port1Write { register, value: _, .. } => {
                 ym2608_commands += 1;
                 *register_tracker.entry(*register).or_insert(0) += 1;
             },
