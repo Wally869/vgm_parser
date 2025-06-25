@@ -341,9 +341,17 @@ mod tests {
     #[test]
     fn test_parser_config_defaults() {
         let config = ParserConfig::default();
-        assert!(config.max_commands > 0);
-        assert!(config.max_data_block_size > 0);
-        assert!(config.max_metadata_size > 0);
+        
+        // Test all default values are reasonable
+        assert_eq!(config.max_commands, 500_000);
+        assert_eq!(config.max_data_block_size, 4 * 1024 * 1024);
+        assert_eq!(config.max_total_data_block_memory, 32 * 1024 * 1024);
+        assert_eq!(config.max_metadata_size, 256 * 1024);
+        assert_eq!(config.max_chip_clock_entries, 32);
+        assert_eq!(config.max_chip_volume_entries, 32);
+        assert!(!config.strict_resource_limits);
+        assert_eq!(config.max_command_memory, 64 * 1024 * 1024);
+        assert_eq!(config.max_parsing_depth, 16);
     }
 
     #[test]
@@ -356,6 +364,151 @@ mod tests {
         assert!(security_config.max_data_block_size <= default_config.max_data_block_size);
         assert!(security_config.max_metadata_size <= default_config.max_metadata_size);
         assert!(security_config.strict_resource_limits);
+        
+        // Test specific security values
+        assert_eq!(security_config.max_commands, 100_000);
+        assert_eq!(security_config.max_data_block_size, 1024 * 1024);
+        assert_eq!(security_config.max_total_data_block_memory, 8 * 1024 * 1024);
+        assert_eq!(security_config.max_metadata_size, 64 * 1024);
+        assert_eq!(security_config.max_chip_clock_entries, 16);
+        assert_eq!(security_config.max_chip_volume_entries, 16);
+        assert_eq!(security_config.max_command_memory, 16 * 1024 * 1024);
+        assert_eq!(security_config.max_parsing_depth, 8);
+    }
+
+    #[test]
+    fn test_permissive_config() {
+        let default_config = ParserConfig::default();
+        let permissive_config = ParserConfig::permissive();
+
+        // Permissive config should have more generous limits
+        assert!(permissive_config.max_commands >= default_config.max_commands);
+        assert!(permissive_config.max_data_block_size >= default_config.max_data_block_size);
+        assert!(permissive_config.max_metadata_size >= default_config.max_metadata_size);
+        assert!(!permissive_config.strict_resource_limits);
+        
+        // Test specific permissive values
+        assert_eq!(permissive_config.max_commands, 2_000_000);
+        assert_eq!(permissive_config.max_data_block_size, 16 * 1024 * 1024);
+        assert_eq!(permissive_config.max_total_data_block_memory, 128 * 1024 * 1024);
+        assert_eq!(permissive_config.max_metadata_size, 1024 * 1024);
+        assert_eq!(permissive_config.max_chip_clock_entries, 64);
+        assert_eq!(permissive_config.max_chip_volume_entries, 64);
+        assert_eq!(permissive_config.max_command_memory, 256 * 1024 * 1024);
+        assert_eq!(permissive_config.max_parsing_depth, 32);
+    }
+
+    #[test]
+    fn test_estimate_command_memory() {
+        let config = ParserConfig::default();
+        
+        // Test memory estimation
+        assert_eq!(config.estimate_command_memory(0), 0);
+        assert_eq!(config.estimate_command_memory(1), 100);
+        assert_eq!(config.estimate_command_memory(10), 1000);
+        assert_eq!(config.estimate_command_memory(1000), 100_000);
+    }
+
+    #[test]
+    fn test_check_command_count() {
+        let config = ParserConfig::default();
+        
+        // Should accept counts within limit
+        assert!(config.check_command_count(0).is_ok());
+        assert!(config.check_command_count(1000).is_ok());
+        assert!(config.check_command_count(config.max_commands).is_ok());
+        
+        // Should reject counts exceeding limit
+        assert!(config.check_command_count(config.max_commands + 1).is_err());
+        assert!(config.check_command_count(usize::MAX).is_err());
+        
+        // Test error type
+        let error = config.check_command_count(config.max_commands + 1).unwrap_err();
+        assert!(matches!(error, VgmError::DataSizeExceedsLimit { .. }));
+    }
+
+    #[test]
+    fn test_check_command_memory() {
+        let config = ParserConfig::default();
+        
+        // Calculate command count that would exceed memory limit
+        let max_commands_by_memory = config.max_command_memory / 100;
+        
+        // Should accept reasonable command counts
+        assert!(config.check_command_memory(1000).is_ok());
+        assert!(config.check_command_memory(max_commands_by_memory).is_ok());
+        
+        // Should reject excessive memory usage
+        assert!(config.check_command_memory(max_commands_by_memory + 1).is_err());
+    }
+
+    #[test]
+    fn test_check_data_block_size() {
+        let config = ParserConfig::default();
+        
+        // Should accept sizes within limit
+        assert!(config.check_data_block_size(0).is_ok());
+        assert!(config.check_data_block_size(1024).is_ok());
+        assert!(config.check_data_block_size(config.max_data_block_size).is_ok());
+        
+        // Should reject sizes exceeding limit
+        assert!(config.check_data_block_size(config.max_data_block_size + 1).is_err());
+        assert!(config.check_data_block_size(u32::MAX).is_err());
+    }
+
+    #[test]
+    fn test_check_metadata_size() {
+        let config = ParserConfig::default();
+        
+        // Should accept sizes within limit
+        assert!(config.check_metadata_size(0).is_ok());
+        assert!(config.check_metadata_size(1024).is_ok());
+        assert!(config.check_metadata_size(config.max_metadata_size).is_ok());
+        
+        // Should reject sizes exceeding limit
+        assert!(config.check_metadata_size(config.max_metadata_size + 1).is_err());
+        assert!(config.check_metadata_size(usize::MAX).is_err());
+    }
+
+    #[test]
+    fn test_check_chip_entries() {
+        let config = ParserConfig::default();
+        
+        // Should accept entries within limits
+        assert!(config.check_chip_entries(0, 0).is_ok());
+        assert!(config.check_chip_entries(16, 16).is_ok());
+        assert!(config.check_chip_entries(config.max_chip_clock_entries, config.max_chip_volume_entries).is_ok());
+        
+        // Should reject clock entries exceeding limit
+        assert!(config.check_chip_entries(config.max_chip_clock_entries + 1, 0).is_err());
+        
+        // Should reject volume entries exceeding limit
+        assert!(config.check_chip_entries(0, config.max_chip_volume_entries + 1).is_err());
+        
+        // Should reject both exceeding limits
+        assert!(config.check_chip_entries(config.max_chip_clock_entries + 1, config.max_chip_volume_entries + 1).is_err());
+    }
+
+    #[test]
+    fn test_resource_tracker_new() {
+        let tracker = ResourceTracker::new();
+        
+        // Should initialize with zero values
+        assert_eq!(tracker.command_count, 0);
+        assert_eq!(tracker.data_block_memory, 0);
+        assert_eq!(tracker.parsing_depth, 0);
+        assert_eq!(tracker.data_block_count, 0);
+    }
+
+    #[test]
+    fn test_resource_tracker_default() {
+        let tracker = ResourceTracker::default();
+        
+        // Should be same as new()
+        assert_eq!(tracker.command_count, 0);
+        assert_eq!(tracker.data_block_memory, 0);
+        assert_eq!(tracker.parsing_depth, 0);
+        assert_eq!(tracker.data_block_count, 0);
     }
 
     #[test]
@@ -369,6 +522,23 @@ mod tests {
         }
 
         assert_eq!(tracker.command_count, 100);
+    }
+
+    #[test]
+    fn test_track_command_with_strict_limits() {
+        let mut config = ParserConfig::default();
+        config.strict_resource_limits = true;
+        config.max_command_memory = 400; // Very low limit - allows 4 commands (4 * 100 = 400)
+        
+        let mut tracker = ResourceTracker::new();
+        
+        // Should accept 4 commands (400 bytes / 100 bytes per command = 4)
+        for _ in 0..4 {
+            assert!(tracker.track_command(&config).is_ok());
+        }
+        
+        // Should reject 5th command that would exceed memory limit (5 * 100 = 500 > 400)
+        assert!(tracker.track_command(&config).is_err());
     }
 
     #[test]
@@ -450,6 +620,67 @@ mod tests {
     }
 
     #[test]
+    fn test_parsing_depth_underflow_protection() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        
+        // Should handle exit when depth is 0
+        tracker.exit_parsing_context();
+        assert_eq!(tracker.parsing_depth, 0);
+        
+        // Should still work normally after underflow attempt
+        assert!(tracker.enter_parsing_context(&config).is_ok());
+        assert_eq!(tracker.parsing_depth, 1);
+    }
+
+    #[test]
+    fn test_get_usage_summary() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        
+        // Add some usage
+        tracker.track_command(&config).unwrap();
+        tracker.track_command(&config).unwrap();
+        tracker.track_data_block(&config, 1024 * 1024).unwrap(); // 1MB
+        tracker.enter_parsing_context(&config).unwrap();
+        
+        let summary = tracker.get_usage_summary();
+        
+        assert_eq!(summary.command_count, 2);
+        assert_eq!(summary.data_block_count, 1);
+        assert_eq!(summary.parsing_depth, 1);
+        assert!((summary.data_block_memory_mb - 1.0).abs() < 0.01); // Should be ~1.0 MB
+    }
+
+    #[test]
+    fn test_resource_usage_summary_display() {
+        let summary = ResourceUsageSummary {
+            command_count: 1000,
+            data_block_memory_mb: 2.5,
+            data_block_count: 3,
+            parsing_depth: 2,
+        };
+        
+        let display_str = format!("{}", summary);
+        assert!(display_str.contains("1000"));
+        assert!(display_str.contains("2.5"));
+        assert!(display_str.contains("3"));
+        assert!(display_str.contains("2"));
+        assert!(display_str.contains("Commands"));
+        assert!(display_str.contains("DataBlocks"));
+        assert!(display_str.contains("MB"));
+        assert!(display_str.contains("Depth"));
+    }
+
+    #[test]
+    fn test_allocation_guard_new() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        let _guard = AllocationGuard::new(&mut tracker, &config);
+        // Just test that creation works
+    }
+
+    #[test]
     fn test_allocation_guard() {
         let config = ParserConfig::default();
         let mut tracker = ResourceTracker::new();
@@ -458,10 +689,29 @@ mod tests {
         // Should be able to allocate reasonable sizes
         let vec: VgmResult<Vec<u8>> = guard.allocate_vec(1024, "test");
         assert!(vec.is_ok());
+        let vec = vec.unwrap();
+        assert!(vec.capacity() >= 1024); // Should have reserved capacity
 
         // Should reject excessive allocations
         let huge_vec: VgmResult<Vec<u8>> = guard.allocate_vec(usize::MAX / 2, "huge_test");
         assert!(huge_vec.is_err());
+    }
+
+    #[test]
+    fn test_allocation_guard_different_types() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        let mut guard = AllocationGuard::new(&mut tracker, &config);
+
+        // Test different types
+        let u8_vec: VgmResult<Vec<u8>> = guard.allocate_vec(100, "u8_test");
+        assert!(u8_vec.is_ok());
+        
+        let u32_vec: VgmResult<Vec<u32>> = guard.allocate_vec(100, "u32_test");
+        assert!(u32_vec.is_ok());
+        
+        let string_vec: VgmResult<Vec<String>> = guard.allocate_vec(100, "string_test");
+        assert!(string_vec.is_ok());
     }
 
     #[test]
@@ -480,5 +730,159 @@ mod tests {
         let large_data: Vec<u32> = (0..1000).collect();
         let result = guard.collect_with_limit(large_data.into_iter(), 5, "test_exceed");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_collect_with_limit_exact_size() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        let mut guard = AllocationGuard::new(&mut tracker, &config);
+
+        // Test exact size match
+        let data = vec![1, 2, 3, 4, 5];
+        let result = guard.collect_with_limit(data.into_iter(), 5, "exact_size");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 5);
+    }
+
+    #[test]
+    fn test_collect_with_limit_empty() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        let mut guard = AllocationGuard::new(&mut tracker, &config);
+
+        // Test empty collection
+        let data: Vec<u32> = vec![];
+        let result = guard.collect_with_limit(data.into_iter(), 10, "empty_test");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_config_debugging() {
+        let config = ParserConfig::default();
+        
+        // Test Debug formatting works
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ParserConfig"));
+        assert!(debug_str.contains("max_commands"));
+    }
+
+    #[test]
+    fn test_tracker_debugging() {
+        let tracker = ResourceTracker::new();
+        
+        // Test Debug formatting works
+        let debug_str = format!("{:?}", tracker);
+        assert!(debug_str.contains("ResourceTracker"));
+        assert!(debug_str.contains("command_count"));
+    }
+
+    #[test]
+    fn test_resource_summary_debugging() {
+        let summary = ResourceUsageSummary {
+            command_count: 100,
+            data_block_memory_mb: 1.5,
+            data_block_count: 2,
+            parsing_depth: 1,
+        };
+        
+        // Test Debug formatting works
+        let debug_str = format!("{:?}", summary);
+        assert!(debug_str.contains("ResourceUsageSummary"));
+        assert!(debug_str.contains("100"));
+    }
+
+    #[test]
+    fn test_error_types_from_config_checks() {
+        let config = ParserConfig::default();
+        
+        // Test all check methods return proper error types
+        let command_error = config.check_command_count(config.max_commands + 1).unwrap_err();
+        assert!(matches!(command_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "command_count"));
+        
+        // Use a large but safe value to avoid overflow
+        let large_count = config.max_command_memory / 50; // Safe multiplication
+        let memory_error = config.check_command_memory(large_count).unwrap_err();
+        assert!(matches!(memory_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "command_memory"));
+        
+        let block_error = config.check_data_block_size(config.max_data_block_size + 1).unwrap_err();
+        assert!(matches!(block_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "data_block_size"));
+        
+        let meta_error = config.check_metadata_size(config.max_metadata_size + 1).unwrap_err();
+        assert!(matches!(meta_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "metadata_size"));
+        
+        let chip_clock_error = config.check_chip_entries(config.max_chip_clock_entries + 1, 0).unwrap_err();
+        assert!(matches!(chip_clock_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "chip_clock_entries"));
+        
+        let chip_volume_error = config.check_chip_entries(0, config.max_chip_volume_entries + 1).unwrap_err();
+        assert!(matches!(chip_volume_error, VgmError::DataSizeExceedsLimit { field, .. } if field == "chip_volume_entries"));
+    }
+
+    #[test]
+    fn test_error_types_from_tracker() {
+        let mut config = ParserConfig::default();
+        config.max_parsing_depth = 1;
+        
+        let mut tracker = ResourceTracker::new();
+        tracker.enter_parsing_context(&config).unwrap();
+        
+        let depth_error = tracker.enter_parsing_context(&config).unwrap_err();
+        assert!(matches!(depth_error, VgmError::ParseStackOverflow { .. }));
+    }
+
+    #[test] 
+    fn test_edge_case_zero_limits() {
+        let mut config = ParserConfig::default();
+        config.max_commands = 0;
+        config.max_data_block_size = 0;
+        config.max_metadata_size = 0;
+        config.max_parsing_depth = 0;
+        
+        let mut tracker = ResourceTracker::new();
+        
+        // Should reject any command with zero limit
+        assert!(tracker.track_command(&config).is_err());
+        
+        // Should reject any non-zero data block with zero limit  
+        assert!(tracker.track_data_block(&config, 1).is_err());
+        // Zero-sized data block should still pass since check is size > max_size
+        assert!(tracker.track_data_block(&config, 0).is_ok());
+        
+        // Should reject any non-zero metadata with zero limit
+        assert!(config.check_metadata_size(1).is_err());
+        // Zero-sized metadata should still pass
+        assert!(config.check_metadata_size(0).is_ok());
+        
+        // Should reject any parsing depth with zero limit
+        assert!(tracker.enter_parsing_context(&config).is_err());
+    }
+
+    #[test]
+    fn test_resource_tracker_integration() {
+        let config = ParserConfig::default();
+        let mut tracker = ResourceTracker::new();
+        
+        // Simulate realistic parsing scenario
+        for _ in 0..1000 {
+            tracker.track_command(&config).unwrap();
+        }
+        
+        tracker.track_data_block(&config, 1024 * 1024).unwrap(); // 1MB
+        tracker.track_data_block(&config, 512 * 1024).unwrap();  // 512KB
+        
+        tracker.enter_parsing_context(&config).unwrap();
+        tracker.enter_parsing_context(&config).unwrap();
+        
+        let summary = tracker.get_usage_summary();
+        assert_eq!(summary.command_count, 1000);
+        assert_eq!(summary.data_block_count, 2);
+        assert_eq!(summary.parsing_depth, 2);
+        assert!((summary.data_block_memory_mb - 1.5).abs() < 0.01); // ~1.5MB
+        
+        tracker.exit_parsing_context();
+        tracker.exit_parsing_context();
+        
+        assert_eq!(tracker.parsing_depth, 0);
     }
 }

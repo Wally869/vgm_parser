@@ -233,6 +233,8 @@ mod validation_integration_test;
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     /// Get project root directory for test file paths
     fn get_project_root() -> PathBuf {
@@ -252,6 +254,413 @@ mod tests {
     /// Get path relative to project root
     fn project_path(relative_path: &str) -> PathBuf {
         get_project_root().join(relative_path)
+    }
+
+    /// Helper to create test VGM data using builders
+    fn create_test_vgm_data() -> Vec<u8> {
+        // Create a basic VGM file with minimal valid data
+        let vgm = VgmFile {
+            header: HeaderData {
+                version: 150,
+                sn76489_clock: 3579545,
+                ym2612_clock: 7670453,
+                total_nb_samples: 44100,
+                rate: 44100,
+                vgm_data_offset: 0x40,
+                gd3_offset: 0x80,
+                end_of_file_offset: 0x100,
+                ..Default::default()
+            },
+            commands: vec![
+                Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+                Commands::Wait735Samples,
+                Commands::EndOfSoundData,
+            ],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "Test Track".to_string(),
+                    game: "Test Game".to_string(),
+                    system: "Test System".to_string(),
+                    author: "Test Author".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "2024".to_string(),
+                name_vgm_creator: "Test Creator".to_string(),
+                notes: "Test VGM file".to_string(),
+            },
+        };
+
+        let mut buffer = BytesMut::new();
+        vgm.to_bytes(&mut buffer).unwrap();
+        buffer.to_vec()
+    }
+
+    #[test]
+    fn test_vgm_file_creation() {
+        let vgm = VgmFile {
+            header: HeaderData::default(),
+            commands: vec![Commands::EndOfSoundData],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "Test".to_string(),
+                    game: "Test".to_string(),
+                    system: "Test".to_string(),
+                    author: "Test".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "2024".to_string(),
+                name_vgm_creator: "Test".to_string(),
+                notes: "Test".to_string(),
+            },
+        };
+
+        // Test structure
+        assert_eq!(vgm.commands.len(), 1);
+        assert_eq!(vgm.header.version, 0);
+        assert_eq!(vgm.metadata.english_data.track, "Test");
+    }
+
+    #[test]
+    fn test_vgm_from_bytes() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data);
+
+        let vgm = VgmFile::from_bytes(&mut bytes).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert_eq!(vgm.header.sn76489_clock, 3579545);
+        assert!(!vgm.commands.is_empty());
+        assert_eq!(vgm.metadata.english_data.track, "Test Track");
+    }
+
+    #[test]
+    fn test_vgm_from_bytes_with_config() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data);
+        let config = ParserConfig::default();
+
+        let vgm = VgmFile::from_bytes_with_config(&mut bytes, config).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_from_bytes_validated() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data);
+        let config = ValidationConfig::default();
+
+        let vgm = VgmFile::from_bytes_validated(&mut bytes, config).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_from_bytes_with_full_config() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data);
+        let parser_config = ParserConfig::default();
+        let validation_config = ValidationConfig::default();
+
+        let vgm = VgmFile::from_bytes_with_full_config(&mut bytes, parser_config, validation_config).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_to_bytes_round_trip() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data);
+
+        // Parse
+        let vgm = VgmFile::from_bytes(&mut bytes).unwrap();
+        
+        // Serialize
+        let mut buffer = BytesMut::new();
+        vgm.to_bytes(&mut buffer).unwrap();
+        
+        // Parse again
+        let mut bytes2 = Bytes::from(buffer.to_vec());
+        let vgm2 = VgmFile::from_bytes(&mut bytes2).unwrap();
+        
+        // Compare key fields
+        assert_eq!(vgm.header.version, vgm2.header.version);
+        assert_eq!(vgm.header.sn76489_clock, vgm2.header.sn76489_clock);
+        assert_eq!(vgm.commands.len(), vgm2.commands.len());
+        assert_eq!(vgm.metadata.english_data.track, vgm2.metadata.english_data.track);
+    }
+
+    #[test]
+    fn test_vgm_has_data_block() {
+        // Test without data block
+        let vgm_no_block = VgmFile {
+            header: HeaderData::default(),
+            commands: vec![
+                Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+                Commands::EndOfSoundData,
+            ],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "".to_string(),
+                name_vgm_creator: "".to_string(),
+                notes: "".to_string(),
+            },
+        };
+        assert!(!vgm_no_block.has_data_block());
+
+        // Test with data block
+        let vgm_with_block = VgmFile {
+            header: HeaderData::default(),
+            commands: vec![
+                Commands::DataBlock {
+                    block_type: 0x00,
+                    data: DataBlockContent::UncompressedStream {
+                        chip_type: StreamChipType::YM2612,
+                        data: vec![0x01, 0x02, 0x03],
+                    },
+                },
+                Commands::EndOfSoundData,
+            ],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "".to_string(),
+                name_vgm_creator: "".to_string(),
+                notes: "".to_string(),
+            },
+        };
+        assert!(vgm_with_block.has_data_block());
+    }
+
+    #[test]
+    fn test_vgm_has_pcm_write() {
+        // Test without PCM write
+        let vgm_no_pcm = VgmFile {
+            header: HeaderData::default(),
+            commands: vec![
+                Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+                Commands::EndOfSoundData,
+            ],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "".to_string(),
+                name_vgm_creator: "".to_string(),
+                notes: "".to_string(),
+            },
+        };
+        assert!(!vgm_no_pcm.has_pcm_write());
+
+        // Test with PCM write
+        let vgm_with_pcm = VgmFile {
+            header: HeaderData::default(),
+            commands: vec![
+                Commands::PCMRAMWrite {
+                    chip_type: 0x02, // YM2612
+                    read_offset: 0x1000,
+                    write_offset: 0x2000,
+                    size: 0x100,
+                    data: vec![0xAA; 0x100],
+                },
+                Commands::EndOfSoundData,
+            ],
+            metadata: VgmMetadata {
+                english_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                japanese_data: Gd3LocaleData {
+                    track: "".to_string(),
+                    game: "".to_string(),
+                    system: "".to_string(),
+                    author: "".to_string(),
+                },
+                date_release: "".to_string(),
+                name_vgm_creator: "".to_string(),
+                notes: "".to_string(),
+            },
+        };
+        assert!(vgm_with_pcm.has_pcm_write());
+    }
+
+    #[test]
+    fn test_vgm_validate() {
+        let test_data = create_test_vgm_data();
+        let mut bytes = Bytes::from(test_data.clone());
+        let vgm = VgmFile::from_bytes(&mut bytes).unwrap();
+
+        // Test validation with default config
+        let result = vgm.validate(test_data.len());
+        assert!(result.is_ok());
+
+        // Test validation with custom config
+        let config = ValidationConfig {
+            min_vgm_version: 100,
+            max_vgm_version: 200,
+            ..Default::default()
+        };
+        let result = vgm.validate_with_config(config, test_data.len());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_vgm_from_path_errors() {
+        // Test file not found
+        let result = VgmFile::from_path("nonexistent_file.vgm");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VgmError::FileNotFound { .. }));
+    }
+
+    #[test]
+    fn test_vgm_from_path_success() {
+        let test_data = create_test_vgm_data();
+        
+        // Create a temporary file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&test_data).unwrap();
+        temp_file.flush().unwrap();
+        
+        let path = temp_file.path().to_str().unwrap();
+        let vgm = VgmFile::from_path(path).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_from_path_with_config() {
+        let test_data = create_test_vgm_data();
+        
+        // Create a temporary file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&test_data).unwrap();
+        temp_file.flush().unwrap();
+        
+        let path = temp_file.path().to_str().unwrap();
+        let config = ValidationConfig::default();
+        let vgm = VgmFile::from_path_with_config(path, config).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_from_path_with_full_config() {
+        let test_data = create_test_vgm_data();
+        
+        // Create a temporary file
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&test_data).unwrap();
+        temp_file.flush().unwrap();
+        
+        let path = temp_file.path().to_str().unwrap();
+        let validation_config = ValidationConfig::default();
+        let parser_config = ParserConfig::default();
+        let vgm = VgmFile::from_path_with_full_config(path, validation_config, parser_config).unwrap();
+        
+        assert_eq!(vgm.header.version, 150);
+        assert!(!vgm.commands.is_empty());
+    }
+
+    #[test]
+    fn test_vgm_file_too_small() {
+        // Create data with VGM magic but too small (< 64 bytes)
+        let mut small_data = Vec::new();
+        small_data.extend_from_slice(b"Vgm "); // VGM magic bytes
+        small_data.extend_from_slice(&vec![0u8; 28]); // Only 32 bytes total, need 64
+        
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&small_data).unwrap();
+        temp_file.flush().unwrap();
+        
+        let path = temp_file.path().to_str().unwrap();
+        let result = VgmFile::from_path(path);
+        
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VgmError::FileTooSmall { .. }));
+    }
+
+    #[test]
+    fn test_vgm_size_limit_exceeded() {
+        let test_data = create_test_vgm_data();
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&test_data).unwrap();
+        temp_file.flush().unwrap();
+        
+        let path = temp_file.path().to_str().unwrap();
+        let config = ValidationConfig {
+            max_file_size: 100, // Very small limit
+            ..Default::default()
+        };
+        
+        let result = VgmFile::from_path_with_config(path, config);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VgmError::DataSizeExceedsLimit { .. }));
+    }
+
+    #[test]
+    fn test_vgm_integer_overflow_protection() {
+        // Create VGM with invalid offset that would cause overflow
+        let mut invalid_data = create_test_vgm_data();
+        
+        // Corrupt the vgm_data_offset field to cause overflow
+        // VGM data offset is at position 0x34 (52) in the header
+        invalid_data[0x34] = 0xFF;
+        invalid_data[0x35] = 0xFF;
+        invalid_data[0x36] = 0xFF;
+        invalid_data[0x37] = 0xFF;
+        
+        let mut bytes = Bytes::from(invalid_data);
+        let result = VgmFile::from_bytes(&mut bytes);
+        
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VgmError::IntegerOverflow { .. }));
     }
 
     #[test]

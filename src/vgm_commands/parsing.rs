@@ -815,13 +815,7 @@ impl Commands {
                     size = 0x01000000;
                 }
 
-                // Check PCM RAM write size against config limits
-                config.check_data_block_size(size)?;
-
-                // Track PCM RAM write allocation
-                tracker.track_data_block(config, size)?;
-
-                // Security: Ensure sufficient data is available
+                // Security: Ensure sufficient data is available before checking limits
                 if bytes.remaining() < size as usize {
                     return Err(VgmError::BufferUnderflow {
                         offset: 0,
@@ -829,6 +823,12 @@ impl Commands {
                         available: bytes.remaining(),
                     });
                 }
+
+                // Check PCM RAM write size against config limits
+                config.check_data_block_size(size)?;
+
+                // Track PCM RAM write allocation
+                tracker.track_data_block(config, size)?;
 
                 let data: Vec<u8> = (0..size).map(|_| bytes.get_u8()).collect();
 

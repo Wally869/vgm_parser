@@ -123,7 +123,22 @@ impl OffsetValidator {
             details: format!("offset {} + size {}", offset, size),
         })?;
 
-        Self::validate_offset(end_offset, file_size, field_name)
+        let end_offset_usize = usize::try_from(end_offset).map_err(|_| VgmError::InvalidOffset {
+            field: field_name.to_string(),
+            offset: end_offset,
+            file_size,
+        })?;
+
+        // For ranges, end_offset can equal file_size (pointing after last byte)
+        if end_offset_usize > file_size {
+            return Err(VgmError::InvalidOffset {
+                field: field_name.to_string(),
+                offset: end_offset,
+                file_size,
+            });
+        }
+
+        Ok(())
     }
 }
 
@@ -427,56 +442,740 @@ impl VgmValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::HeaderData;
+    use crate::{HeaderData, Commands, VgmMetadata, Gd3LocaleData};
 
     #[test]
-    fn test_version_validator() {
+    fn test_validation_config_default() {
+        let config = ValidationConfig::default();
+        
+        // Test all default values are reasonable
+        assert_eq!(config.min_vgm_version, 100);
+        assert_eq!(config.max_vgm_version, 171);
+        assert_eq!(config.max_file_size, 64 * 1024 * 1024);
+        assert_eq!(config.max_commands, 1_000_000);
+        assert_eq!(config.max_data_block_size, 16 * 1024 * 1024);
+        assert!(!config.strict_mode);
+        
+        // Verify logical relationships
+        assert!(config.max_vgm_version > config.min_vgm_version);
+        assert!(config.max_file_size > 1024);
+        assert!(config.max_commands > 0);
+        assert!(config.max_data_block_size > 0);
+    }
+
+    #[test]
+    fn test_validation_config_custom() {
+        let config = ValidationConfig {
+            min_vgm_version: 150,
+            max_vgm_version: 160,
+            max_file_size: 1024 * 1024,
+            max_commands: 10_000,
+            max_data_block_size: 1024 * 1024,
+            strict_mode: true,
+        };
+        
+        assert_eq!(config.min_vgm_version, 150);
+        assert_eq!(config.max_vgm_version, 160);
+        assert!(config.strict_mode);
+    }
+
+    #[test]
+    fn test_validation_context() {
+        let config = ValidationConfig::default();
+        let context = ValidationContext {
+            file_size: 1024,
+            config: config.clone(),
+        };
+        
+        assert_eq!(context.file_size, 1024);
+        assert_eq!(context.config.min_vgm_version, config.min_vgm_version);
+    }
+
+    #[test]
+    fn test_version_validator_valid_versions() {
         let config = ValidationConfig::default();
 
-        // Valid version (1.51 in decimal)
-        assert!(VersionValidator::validate_version(151, &config).is_ok());
+        // Test boundary valid versions
+        assert!(VersionValidator::validate_version(100, &config).is_ok()); // Min version
+        assert!(VersionValidator::validate_version(171, &config).is_ok()); // Max version
+        assert!(VersionValidator::validate_version(151, &config).is_ok()); // Common version
+        assert!(VersionValidator::validate_version(150, &config).is_ok()); // Another common version
+    }
 
-        // Too old version (0.50 in decimal)
+    #[test]
+    fn test_version_validator_invalid_versions() {
+        let config = ValidationConfig::default();
+
+        // Too old versions
         assert!(VersionValidator::validate_version(50, &config).is_err());
-
-        // Too new version (2.00 in decimal)
+        assert!(VersionValidator::validate_version(99, &config).is_err());
+        
+        // Too new versions  
+        assert!(VersionValidator::validate_version(172, &config).is_err());
         assert!(VersionValidator::validate_version(200, &config).is_err());
+        assert!(VersionValidator::validate_version(999, &config).is_err());
     }
 
     #[test]
-    fn test_offset_validator() {
-        // Valid offset
+    fn test_version_validator_error_messages() {
+        let config = ValidationConfig::default();
+        
+        // Test error message for too old version
+        let result = VersionValidator::validate_version(50, &config);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::UnsupportedVgmVersion { version, supported_range } => {
+                assert_eq!(version, 50);
+                assert!(supported_range.contains("1.00+"));
+            },
+            _ => panic!("Expected UnsupportedVgmVersion error"),
+        }
+        
+        // Test error message for too new version
+        let result = VersionValidator::validate_version(200, &config);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::UnsupportedVgmVersion { version, supported_range } => {
+                assert_eq!(version, 200);
+                assert!(supported_range.contains("1.00-1.71"));
+            },
+            _ => panic!("Expected UnsupportedVgmVersion error"),
+        }
+    }
+
+    #[test]
+    fn test_version_to_string() {
+        assert_eq!(VersionValidator::version_to_string(100), "1.00");
+        assert_eq!(VersionValidator::version_to_string(151), "1.51");
+        assert_eq!(VersionValidator::version_to_string(171), "1.71");
+        assert_eq!(VersionValidator::version_to_string(200), "2.00");
+        assert_eq!(VersionValidator::version_to_string(999), "9.99");
+    }
+
+    #[test]
+    fn test_offset_validator_valid_offsets() {
+        // Valid offsets within bounds
+        assert!(OffsetValidator::validate_offset(0, 1000, "test").is_ok());
         assert!(OffsetValidator::validate_offset(100, 1000, "test").is_ok());
-
-        // Invalid offset - beyond file
-        assert!(OffsetValidator::validate_offset(1500, 1000, "test").is_err());
-
-        // Valid range
-        assert!(OffsetValidator::validate_range(100, 50, 1000, "test").is_ok());
-
-        // Invalid range - beyond file
-        assert!(OffsetValidator::validate_range(950, 100, 1000, "test").is_err());
+        assert!(OffsetValidator::validate_offset(999, 1000, "test").is_ok());
     }
 
     #[test]
-    fn test_chip_validator() {
+    fn test_offset_validator_invalid_offsets() {
+        // Invalid offsets beyond file size
+        assert!(OffsetValidator::validate_offset(1000, 1000, "test").is_err());
+        assert!(OffsetValidator::validate_offset(1500, 1000, "test").is_err());
+        assert!(OffsetValidator::validate_offset(u32::MAX, 1000, "test").is_err());
+    }
+
+    #[test]
+    fn test_offset_validator_error_types() {
+        let result = OffsetValidator::validate_offset(1500, 1000, "test_field");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::InvalidOffset { field, offset, file_size } => {
+                assert_eq!(field, "test_field");
+                assert_eq!(offset, 1500);
+                assert_eq!(file_size, 1000);
+            },
+            _ => panic!("Expected InvalidOffset error"),
+        }
+    }
+
+    #[test]
+    fn test_offset_validator_valid_ranges() {
+        // Valid ranges within bounds
+        assert!(OffsetValidator::validate_range(0, 100, 1000, "test").is_ok());
+        assert!(OffsetValidator::validate_range(100, 50, 1000, "test").is_ok());
+        assert!(OffsetValidator::validate_range(900, 100, 1000, "test").is_ok());
+    }
+
+    #[test]
+    fn test_offset_validator_invalid_ranges() {
+        // Invalid ranges beyond file bounds
+        assert!(OffsetValidator::validate_range(950, 100, 1000, "test").is_err());
+        assert!(OffsetValidator::validate_range(900, 200, 1000, "test").is_err());
+    }
+
+    #[test]
+    fn test_offset_validator_range_overflow() {
+        // Test integer overflow in range calculation
+        let result = OffsetValidator::validate_range(u32::MAX - 10, 20, 1000, "test");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::IntegerOverflow { operation, details } => {
+                assert!(operation.contains("test range calculation"));
+                assert!(details.contains("offset"));
+                assert!(details.contains("size"));
+            },
+            _ => panic!("Expected IntegerOverflow error"),
+        }
+    }
+
+    #[test]
+    fn test_chip_validator_valid_clocks() {
         let mut header = HeaderData::default();
 
-        // Valid chip clocks
+        // Test valid common clock frequencies
         header.sn76489_clock = 3579545; // Common PSG clock
         header.ym2612_clock = 7670453; // Common YM2612 clock
+        header.ym2151_clock = 3579545; // Common YM2151 clock
         assert!(ChipValidator::validate_chip_clocks(&header).is_ok());
 
-        // Invalid clock - too high
-        header.sn76489_clock = 50_000_000; // Way too high
+        // Test zero clocks (disabled chips)
+        header.sn76489_clock = 0;
+        header.ym2612_clock = 0;
+        header.ym2151_clock = 0;
+        assert!(ChipValidator::validate_chip_clocks(&header).is_ok());
+    }
+
+    #[test]
+    fn test_chip_validator_invalid_clocks() {
+        let mut header = HeaderData::default();
+
+        // Test SN76489 clock out of range
+        header.sn76489_clock = 500_000; // Too low
+        assert!(ChipValidator::validate_chip_clocks(&header).is_err());
+        
+        header.sn76489_clock = 50_000_000; // Too high
+        assert!(ChipValidator::validate_chip_clocks(&header).is_err());
+
+        // Test YM2612 clock out of range
+        header.sn76489_clock = 0; // Reset to valid
+        header.ym2612_clock = 1_000_000; // Too low
+        assert!(ChipValidator::validate_chip_clocks(&header).is_err());
+        
+        header.ym2612_clock = 20_000_000; // Too high
+        assert!(ChipValidator::validate_chip_clocks(&header).is_err());
+
+        // Test YM2151 clock out of range
+        header.ym2612_clock = 0; // Reset to valid
+        header.ym2151_clock = 1_000_000; // Too low
+        assert!(ChipValidator::validate_chip_clocks(&header).is_err());
+        
+        header.ym2151_clock = 10_000_000; // Too high
         assert!(ChipValidator::validate_chip_clocks(&header).is_err());
     }
 
     #[test]
-    fn test_validation_config() {
+    fn test_chip_validator_clock_error_messages() {
+        let mut header = HeaderData::default();
+        header.sn76489_clock = 50_000_000; // Too high
+        
+        let result = ChipValidator::validate_chip_clocks(&header);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::ValidationFailed { field, reason } => {
+                assert_eq!(field, "SN76489 clock");
+                assert!(reason.contains("50000000"));
+                assert!(reason.contains("Hz"));
+                assert!(reason.contains("outside valid range"));
+            },
+            _ => panic!("Expected ValidationFailed error"),
+        }
+    }
+
+    #[test]
+    fn test_chip_validator_valid_volumes() {
+        let mut header = HeaderData::default();
+        
+        // Valid volume modifier values
+        header.volume_modifier = 0;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_ok());
+        
+        header.volume_modifier = 32;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_ok());
+        
+        header.volume_modifier = 64;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_ok());
+    }
+
+    #[test]
+    fn test_chip_validator_invalid_volumes() {
+        let mut header = HeaderData::default();
+        
+        // Invalid volume modifier values
+        header.volume_modifier = 65;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_err());
+        
+        header.volume_modifier = 100;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_err());
+        
+        header.volume_modifier = u8::MAX;
+        assert!(ChipValidator::validate_chip_volumes(&header).is_err());
+    }
+
+    #[test]
+    fn test_chip_validator_volume_error_message() {
+        let mut header = HeaderData::default();
+        header.volume_modifier = 100;
+        
+        let result = ChipValidator::validate_chip_volumes(&header);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::ValidationFailed { field, reason } => {
+                assert_eq!(field, "volume_modifier");
+                assert!(reason.contains("100"));
+                assert!(reason.contains("exceeds maximum 64"));
+            },
+            _ => panic!("Expected ValidationFailed error"),
+        }
+    }
+
+    #[test]
+    fn test_consistency_validator_valid_header() {
+        let mut header = HeaderData::default();
+        let file_size = 1000;
+        
+        // Valid offsets
+        header.vgm_data_offset = 100;
+        header.gd3_offset = 200;
+        header.loop_offset = 150;
+        
+        assert!(ConsistencyValidator::validate_header_consistency(&header, file_size).is_ok());
+    }
+
+    #[test]
+    fn test_consistency_validator_invalid_header_offsets() {
+        let mut header = HeaderData::default();
+        let file_size = 1000;
+        
+        // Invalid VGM data offset
+        header.vgm_data_offset = 1000; // Would place data at 1000 + 0x34 = 1052 > file_size
+        let result = ConsistencyValidator::validate_header_consistency(&header, file_size);
+        assert!(result.is_err());
+        
+        // Reset and test GD3 offset
+        header.vgm_data_offset = 0;
+        header.gd3_offset = 1000; // Would place GD3 at 1000 + 0x14 = 1020 > file_size
+        let result = ConsistencyValidator::validate_header_consistency(&header, file_size);
+        assert!(result.is_err());
+        
+        // Reset and test loop offset
+        header.gd3_offset = 0;
+        header.loop_offset = 1000; // Would place loop at 1000 + 0x1C = 1028 > file_size
+        let result = ConsistencyValidator::validate_header_consistency(&header, file_size);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_chip_usage_tracker() {
+        let mut tracker = ChipUsageTracker::new();
+        
+        // Initially no chips used
+        assert!(!tracker.sn76489_used);
+        assert!(!tracker.ym2612_used);
+        assert!(!tracker.ym2151_used);
+        assert!(!tracker.ym2413_used);
+        
+        // Track PSG command
+        tracker.track_command(&Commands::PSGWrite { value: 0x9F, chip_index: 0 });
+        assert!(tracker.sn76489_used);
+        
+        // Track YM2612 commands
+        tracker.track_command(&Commands::YM2612Port0Write { register: 0x28, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym2612_used);
+        
+        tracker.track_command(&Commands::YM2612Port1Write { register: 0x28, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym2612_used);
+        
+        // Track other chip commands
+        tracker.track_command(&Commands::YM2151Write { register: 0x08, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym2151_used);
+        
+        tracker.track_command(&Commands::YM2413Write { register: 0x10, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym2413_used);
+        
+        tracker.track_command(&Commands::YM2203Write { register: 0x07, value: 0x3F, chip_index: 0 });
+        assert!(tracker.ym2203_used);
+        
+        tracker.track_command(&Commands::YM2608Port0Write { register: 0x07, value: 0x3F, chip_index: 0 });
+        assert!(tracker.ym2608_used);
+        
+        tracker.track_command(&Commands::YM2610Port0Write { register: 0x07, value: 0x3F, chip_index: 0 });
+        assert!(tracker.ym2610_used);
+        
+        tracker.track_command(&Commands::YM3812Write { register: 0x20, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym3812_used);
+        
+        tracker.track_command(&Commands::YM3526Write { register: 0x20, value: 0x00, chip_index: 0 });
+        assert!(tracker.ym3526_used);
+        
+        tracker.track_command(&Commands::Y8950Write { register: 0x20, value: 0x00, chip_index: 0 });
+        assert!(tracker.y8950_used);
+    }
+
+    #[test]
+    fn test_chip_usage_tracker_non_chip_commands() {
+        let mut tracker = ChipUsageTracker::new();
+        
+        // Commands that don't indicate specific chip usage
+        tracker.track_command(&Commands::Wait735Samples);
+        tracker.track_command(&Commands::Wait882Samples);
+        tracker.track_command(&Commands::EndOfSoundData);
+        tracker.track_command(&Commands::WaitNSamples { n: 100 });
+        
+        // Should not mark any chips as used
+        assert!(!tracker.sn76489_used);
+        assert!(!tracker.ym2612_used);
+        assert!(!tracker.ym2151_used);
+        assert!(!tracker.ym2413_used);
+    }
+
+    #[test]
+    fn test_chip_usage_validation_success() {
+        let mut tracker = ChipUsageTracker::new();
+        let mut header = HeaderData::default();
+        
+        // Set up header with clocks
+        header.sn76489_clock = 3579545;
+        header.ym2612_clock = 7670453;
+        header.ym2151_clock = 3579545;
+        
+        // Track usage
+        tracker.track_command(&Commands::PSGWrite { value: 0x9F, chip_index: 0 });
+        tracker.track_command(&Commands::YM2612Port0Write { register: 0x28, value: 0x00, chip_index: 0 });
+        tracker.track_command(&Commands::YM2151Write { register: 0x08, value: 0x00, chip_index: 0 });
+        
+        // Should pass validation
+        assert!(tracker.validate_against_header(&header).is_ok());
+    }
+
+    #[test]
+    fn test_chip_usage_validation_failures() {
+        let mut tracker = ChipUsageTracker::new();
+        let header = HeaderData::default(); // All clocks are 0
+        
+        // Test SN76489 usage without clock
+        tracker.track_command(&Commands::PSGWrite { value: 0x9F, chip_index: 0 });
+        let result = tracker.validate_against_header(&header);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::InconsistentData { context, reason } => {
+                assert_eq!(context, "Chip usage validation");
+                assert!(reason.contains("SN76489"));
+                assert!(reason.contains("no clock configured"));
+            },
+            _ => panic!("Expected InconsistentData error"),
+        }
+        
+        // Reset tracker and test YM2612
+        let mut tracker = ChipUsageTracker::new();
+        tracker.track_command(&Commands::YM2612Port0Write { register: 0x28, value: 0x00, chip_index: 0 });
+        let result = tracker.validate_against_header(&header);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::InconsistentData { context, reason } => {
+                assert!(reason.contains("YM2612"));
+            },
+            _ => panic!("Expected InconsistentData error"),
+        }
+        
+        // Test each chip type
+        let chip_tests = [
+            (Commands::YM2151Write { register: 0x08, value: 0x00, chip_index: 0 }, "YM2151"),
+            (Commands::YM2413Write { register: 0x10, value: 0x00, chip_index: 0 }, "YM2413"),
+            (Commands::YM2203Write { register: 0x07, value: 0x3F, chip_index: 0 }, "YM2203"),
+            (Commands::YM2608Port0Write { register: 0x07, value: 0x3F, chip_index: 0 }, "YM2608"),
+            (Commands::YM2610Port0Write { register: 0x07, value: 0x3F, chip_index: 0 }, "YM2610"),
+            (Commands::YM3812Write { register: 0x20, value: 0x00, chip_index: 0 }, "YM3812"),
+            (Commands::YM3526Write { register: 0x20, value: 0x00, chip_index: 0 }, "YM3526"),
+            (Commands::Y8950Write { register: 0x20, value: 0x00, chip_index: 0 }, "Y8950"),
+        ];
+        
+        for (command, chip_name) in &chip_tests {
+            let mut tracker = ChipUsageTracker::new();
+            tracker.track_command(command);
+            let result = tracker.validate_against_header(&header);
+            assert!(result.is_err(), "Expected error for {}", chip_name);
+            match result.unwrap_err() {
+                VgmError::InconsistentData { reason, .. } => {
+                    assert!(reason.contains(chip_name), "Error should mention {}", chip_name);
+                },
+                _ => panic!("Expected InconsistentData error for {}", chip_name),
+            }
+        }
+    }
+
+    #[test]
+    fn test_consistency_validator_commands() {
+        let mut header = HeaderData::default();
+        header.sn76489_clock = 3579545;
+        header.ym2612_clock = 7670453;
+        
+        let commands = vec![
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::YM2612Port0Write { register: 0x28, value: 0x00, chip_index: 0 },
+            Commands::Wait735Samples,
+            Commands::EndOfSoundData,
+        ];
+        
+        // Should pass validation
+        assert!(ConsistencyValidator::validate_commands_consistency(&header, &commands).is_ok());
+        
+        // Test with missing clock configuration
+        header.sn76489_clock = 0; // Remove PSG clock
+        let result = ConsistencyValidator::validate_commands_consistency(&header, &commands);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_vgm_validator_new() {
         let config = ValidationConfig::default();
-        assert!(config.min_vgm_version > 0);
-        assert!(config.max_vgm_version > config.min_vgm_version);
-        assert!(config.max_file_size > 1024);
+        let validator = VgmValidator::new(config.clone());
+        assert_eq!(validator.config.min_vgm_version, config.min_vgm_version);
+        
+        let default_validator = VgmValidator::default();
+        assert_eq!(default_validator.config.min_vgm_version, ValidationConfig::default().min_vgm_version);
+    }
+
+    #[test]
+    fn test_vgm_validator_quick_validate_header() {
+        let validator = VgmValidator::default();
+        
+        // Valid header
+        let mut header = HeaderData::default();
+        header.version = 151;
+        header.sn76489_clock = 3579545;
+        header.volume_modifier = 32;
+        assert!(validator.quick_validate_header(&header).is_ok());
+        
+        // Invalid version
+        header.version = 50; // Too old
+        assert!(validator.quick_validate_header(&header).is_err());
+        
+        // Invalid volume
+        header.version = 151; // Reset to valid
+        header.volume_modifier = 100; // Too high
+        assert!(validator.quick_validate_header(&header).is_err());
+    }
+
+    #[test]
+    fn test_vgm_validator_full_validation() {
+        let validator = VgmValidator::default();
+        
+        // Create valid test data
+        let header = HeaderData {
+            version: 151,
+            sn76489_clock: 3579545,
+            ym2612_clock: 7670453,
+            vgm_data_offset: 0x40,
+            gd3_offset: 0x100,
+            volume_modifier: 32,
+            ..Default::default()
+        };
+        
+        let commands = vec![
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::YM2612Port0Write { register: 0x28, value: 0x00, chip_index: 0 },
+            Commands::Wait735Samples,
+            Commands::EndOfSoundData,
+        ];
+        
+        let metadata = VgmMetadata {
+            english_data: Gd3LocaleData {
+                track: "Test Track".to_string(),
+                game: "Test Game".to_string(),
+                system: "Test System".to_string(),
+                author: "Test Author".to_string(),
+            },
+            japanese_data: Gd3LocaleData {
+                track: "".to_string(),
+                game: "".to_string(),
+                system: "".to_string(),
+                author: "".to_string(),
+            },
+            date_release: "2024".to_string(),
+            name_vgm_creator: "Test Creator".to_string(),
+            notes: "Test Notes".to_string(),
+        };
+        
+        let file_size = 1024;
+        
+        // Should pass validation
+        assert!(validator.validate_vgm_file(&header, &commands, &metadata, file_size).is_ok());
+    }
+
+    #[test]
+    fn test_vgm_validator_full_validation_failures() {
+        let validator = VgmValidator::default();
+        
+        // Invalid version
+        let mut header = HeaderData {
+            version: 50, // Too old
+            sn76489_clock: 3579545,
+            ..Default::default()
+        };
+        
+        let commands = vec![Commands::EndOfSoundData];
+        let metadata = VgmMetadata {
+            english_data: Gd3LocaleData {
+                track: "Test".to_string(),
+                game: "Test".to_string(),
+                system: "Test".to_string(),
+                author: "Test".to_string(),
+            },
+            japanese_data: Gd3LocaleData {
+                track: "".to_string(),
+                game: "".to_string(),
+                system: "".to_string(),
+                author: "".to_string(),
+            },
+            date_release: "2024".to_string(),
+            name_vgm_creator: "Test".to_string(),
+            notes: "Test".to_string(),
+        };
+        
+        let result = validator.validate_vgm_file(&header, &commands, &metadata, 1024);
+        assert!(result.is_err());
+        
+        // Too many commands
+        header.version = 151; // Fix version
+        let many_commands = vec![Commands::Wait735Samples; 2_000_000]; // Exceeds default limit
+        let result = validator.validate_vgm_file(&header, &many_commands, &metadata, 1024);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            VgmError::DataSizeExceedsLimit { field, size, limit } => {
+                assert_eq!(field, "commands");
+                assert_eq!(size, 2_000_000);
+                assert_eq!(limit, 1_000_000);
+            },
+            _ => panic!("Expected DataSizeExceedsLimit error"),
+        }
+    }
+
+    #[test]
+    fn test_vgm_validate_trait_quick_validate() {
+        // Test that quick_validate uses default context
+        let header = HeaderData {
+            version: 151,
+            sn76489_clock: 3579545,
+            volume_modifier: 32,
+            ..Default::default()
+        };
+        
+        // This should work since quick_validate creates a permissive context
+        assert!(header.quick_validate().is_ok());
+        
+        // Test with invalid data
+        let invalid_header = HeaderData {
+            version: 50, // Too old
+            ..Default::default()
+        };
+        
+        assert!(invalid_header.quick_validate().is_err());
+    }
+
+    #[test]
+    fn test_validation_config_edge_cases() {
+        // Test with extreme values
+        let config = ValidationConfig {
+            min_vgm_version: 0,
+            max_vgm_version: u32::MAX,
+            max_file_size: usize::MAX,
+            max_commands: usize::MAX,
+            max_data_block_size: u32::MAX,
+            strict_mode: true,
+        };
+        
+        // Should still work with extreme values
+        assert_eq!(config.min_vgm_version, 0);
+        assert_eq!(config.max_vgm_version, u32::MAX);
+    }
+
+    #[test]
+    fn test_offset_validator_edge_cases() {
+        // Test with zero file size
+        assert!(OffsetValidator::validate_offset(0, 0, "test").is_err());
+        assert!(OffsetValidator::validate_offset(1, 0, "test").is_err());
+        
+        // Test with maximum values
+        assert!(OffsetValidator::validate_offset(u32::MAX, usize::MAX, "test").is_ok());
+        
+        // Test range with zero size
+        assert!(OffsetValidator::validate_range(100, 0, 1000, "test").is_ok());
+    }
+
+    #[test]
+    fn test_chip_validator_all_chips_disabled() {
+        let header = HeaderData::default(); // All clocks are 0
+        
+        // Should pass validation when no chips are configured
+        assert!(ChipValidator::validate_chip_clocks(&header).is_ok());
+        assert!(ChipValidator::validate_chip_volumes(&header).is_ok());
+    }
+
+    #[test]
+    fn test_validation_comprehensive_integration() {
+        // Test a comprehensive validation scenario with multiple validators
+        let config = ValidationConfig {
+            min_vgm_version: 150,
+            max_vgm_version: 160,
+            max_file_size: 2048,
+            max_commands: 100,
+            max_data_block_size: 1024,
+            strict_mode: true,
+        };
+        
+        let validator = VgmValidator::new(config);
+        
+        let header = HeaderData {
+            version: 151,
+            sn76489_clock: 3579545,
+            vgm_data_offset: 100,
+            gd3_offset: 200,
+            volume_modifier: 16,
+            ..Default::default()
+        };
+        
+        let commands = vec![
+            Commands::PSGWrite { value: 0x9F, chip_index: 0 },
+            Commands::Wait735Samples,
+            Commands::EndOfSoundData,
+        ];
+        
+        let metadata = VgmMetadata {
+            english_data: Gd3LocaleData {
+                track: "Short".to_string(),
+                game: "Test".to_string(),
+                system: "Sys".to_string(),
+                author: "Me".to_string(),
+            },
+            japanese_data: Gd3LocaleData {
+                track: "".to_string(),
+                game: "".to_string(),
+                system: "".to_string(),
+                author: "".to_string(),
+            },
+            date_release: "2024".to_string(),
+            name_vgm_creator: "Test".to_string(),
+            notes: "Notes".to_string(),
+        };
+        
+        // Should pass all validations
+        assert!(validator.validate_vgm_file(&header, &commands, &metadata, 1500).is_ok());
+        
+        // Test failure with too many commands
+        let too_many_commands = vec![Commands::Wait735Samples; 150];
+        let result = validator.validate_vgm_file(&header, &too_many_commands, &metadata, 1500);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_debug_formatting() {
+        let config = ValidationConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ValidationConfig"));
+        
+        let context = ValidationContext {
+            file_size: 1024,
+            config: config.clone(),
+        };
+        let debug_str = format!("{:?}", context);
+        assert!(debug_str.contains("ValidationContext"));
+        
+        let tracker = ChipUsageTracker::new();
+        let debug_str = format!("{:?}", tracker);
+        assert!(debug_str.contains("ChipUsageTracker"));
     }
 }

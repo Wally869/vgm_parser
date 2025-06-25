@@ -682,6 +682,100 @@ mod tests {
     }
 
     #[test]
+    fn test_error_display_formatting() {
+        // Test Display implementations for various error types
+        let buffer_error = VgmError::BufferUnderflow {
+            offset: 10,
+            needed: 4,
+            available: 2,
+        };
+        let display_text = format!("{}", buffer_error);
+        assert!(display_text.contains("Buffer underflow"));
+        assert!(display_text.contains("10"));
+        assert!(display_text.contains("4"));
+        assert!(display_text.contains("2"));
+
+        let magic_error = VgmError::InvalidMagicBytes {
+            expected: "Vgm ".to_string(),
+            found: "Test".to_string(),
+            offset: 0,
+        };
+        let display_text = format!("{}", magic_error);
+        assert!(display_text.contains("Invalid VGM magic bytes"));
+        assert!(display_text.contains("Vgm "));
+        assert!(display_text.contains("Test"));
+
+        let version_error = VgmError::UnsupportedVgmVersion {
+            version: 50,
+            supported_range: "1.00+".to_string(),
+        };
+        let display_text = format!("{}", version_error);
+        assert!(display_text.contains("Unsupported VGM version"));
+        assert!(display_text.contains("50"));
+        assert!(display_text.contains("1.00+"));
+    }
+
+    #[test]
+    fn test_error_debug_display() {
+        // Test debug display for various errors
+        let inconsistent_error = VgmError::InconsistentData {
+            context: "test context".to_string(),
+            reason: "test inconsistency".to_string(),
+        };
+        let debug_text = format!("{:?}", inconsistent_error);
+        assert!(debug_text.contains("InconsistentData"));
+        assert!(debug_text.contains("test context"));
+        assert!(debug_text.contains("test inconsistency"));
+
+        let overflow_error = VgmError::IntegerOverflow {
+            operation: "test operation".to_string(),
+            details: "test details".to_string(),
+        };
+        let debug_text = format!("{:?}", overflow_error);
+        assert!(debug_text.contains("IntegerOverflow"));
+        assert!(debug_text.contains("test operation"));
+        assert!(debug_text.contains("test details"));
+    }
+
+    #[test]
+    fn test_error_source_chain() {
+        // Test error conversion from io::Error
+        let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
+        let vgm_error = VgmError::from(io_error);
+        
+        match vgm_error {
+            VgmError::FileNotFound { path, io_kind } => {
+                assert_eq!(path, "unknown");
+                assert_eq!(io_kind, Some(std::io::ErrorKind::NotFound));
+            },
+            _ => panic!("Expected FileNotFound error"),
+        }
+        
+        // Test other io error kinds
+        let permission_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Permission denied");
+        let vgm_error = VgmError::from(permission_error);
+        
+        match vgm_error {
+            VgmError::PermissionDenied { path } => {
+                assert_eq!(path, "unknown");
+            },
+            _ => panic!("Expected PermissionDenied error"),
+        }
+        
+        // Test generic io error
+        let other_error = std::io::Error::new(std::io::ErrorKind::Other, "Some other error");
+        let vgm_error = VgmError::from(other_error);
+        
+        match vgm_error {
+            VgmError::FileReadError { path, reason } => {
+                assert_eq!(path, "unknown");
+                assert!(reason.contains("Some other error"));
+            },
+            _ => panic!("Expected FileReadError error"),
+        }
+    }
+
+    #[test]
     fn test_suggested_actions() {
         // Test that suggested actions are meaningful
         let file_error = VgmError::FileNotFound {

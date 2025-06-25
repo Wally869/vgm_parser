@@ -582,7 +582,7 @@ impl Commands {
             },
             Commands::SCSPWrite { offset, value } => {
                 let temp = offset.to_le_bytes();
-                vec![0xC5, temp[1], temp[0], value]
+                vec![0xC5, temp[0], temp[1], value]
             },
             Commands::WonderSwanWrite16 { offset, value } => {
                 let temp = offset.to_le_bytes();
@@ -590,11 +590,11 @@ impl Commands {
             },
             Commands::VSUWrite { offset, value } => {
                 let temp = offset.to_le_bytes();
-                vec![0xC7, temp[1], temp[0], value]
+                vec![0xC7, temp[0], temp[1], value]
             },
             Commands::X1010Write { offset, value } => {
                 let temp = offset.to_le_bytes();
-                vec![0xC8, temp[1], temp[0], value]
+                vec![0xC8, temp[0], temp[1], value]
             },
 
             Commands::YMF278BWrite {
